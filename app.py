@@ -16,15 +16,6 @@ if password_input != "1234":
     st.warning("אנא הכנס סיסמה בתפריט הצד.")
     st.stop()
 
-# פונקציית טעינת המודל בצורה בטוחה
-def get_ai_response(p1, p2, api_key):
-    genai.configure(api_key=api_key)
-    # שימוש בשם המודל המדויק לגרסה היציבה
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    prompt = "Identify this coin based on these images. Tell me the country, year, and estimated value in ILS. Hebrew only."
-    response = model.generate_content([prompt, p1, p2])
-    return response.text
-
 # ניהול מסד נתונים
 DB_FILE = 'catalog.csv'
 def load_data():
@@ -51,12 +42,23 @@ with tab1:
         if st.button("🔍 זהה מטבע"):
             try:
                 with st.spinner('מנתח...'):
+                    # הגדרת ה-API בתוך הפונקציה למניעת שגיאות גרסה
+                    genai.configure(api_key=api_key_input)
+                    
+                    # שינוי חשוב: שימוש בשם המודל המלא והעדכני
+                    model = genai.GenerativeModel(model_name='models/gemini-1.5-flash')
+                    
                     p1 = Image.open(img_front)
                     p2 = Image.open(img_back)
-                    result = get_ai_response(p1, p2, api_key_input)
-                    st.session_state['temp_info'] = result
+                    
+                    prompt = "Identify this coin based on these images. Tell me the country, year, and estimated value in ILS. Hebrew only."
+                    
+                    # שליחה לזיהוי
+                    response = model.generate_content([prompt, p1, p2])
+                    st.session_state['temp_info'] = response.text
             except Exception as e:
-                st.error(f"שגיאה: {str(e)}")
+                st.error(f"שגיאה מהשרת של גוגל: {str(e)}")
+                st.info("טיפ: וודא שה-API Key תקין ושיש לך חיבור אינטרנט יציב.")
 
         if 'temp_info' in st.session_state:
             final_info = st.text_area("ערוך מידע:", value=st.session_state['temp_info'], height=150)
