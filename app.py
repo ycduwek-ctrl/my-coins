@@ -13,7 +13,7 @@ PASSWORD = "1234"  # שנה את זה לסיסמה שאתה רוצה לחברי�
 
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel(model_name="gemini-1.5-flash")
 
 # פונקציה לניהול מסד הנתונים (שמירה לקובץ CSV פשוט)
 def save_to_catalog(data):
@@ -54,7 +54,7 @@ with tab1:
                 הערכת מחיר לאספנים: [טווח מחיר בשקלים]
                 תיאור קצר: [תיאור]"""
                 
-                response = model.generate_content([prompt, image])
+                response = model.generate_content([prompt, p1, p2])
                 ai_result = response.text
                 st.session_state['ai_info'] = ai_result
 
