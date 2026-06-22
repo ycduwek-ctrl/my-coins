@@ -2,31 +2,30 @@ import streamlit as st
 import pandas as pd
 import os
 from PIL import Image
+import io
 
-# --- הגדרות דף ועיצוב ---
-st.set_page_config(page_title="Coin Manager Pro", layout="wide")
+# --- הגדרות עיצוב ---
+st.set_page_config(page_title="Coin Catalog", layout="wide")
 
 st.markdown("""
 <style>
-    /* עיצוב תמונה לריבוע 1:1 */
+    /* פורמט 1:1 לכל התמונות */
     .stImage > img {
         aspect-ratio: 1 / 1;
         object-fit: cover;
-        border-radius: 12px;
-        border: 1px solid #ddd;
+        border-radius: 15px;
     }
-    /* עיצוב כפתורי דפדוף מעל התמונה */
-    .nav-button {
-        background-color: rgba(255, 255, 255, 0.7);
-        border: none;
-        border-radius: 50%;
-        padding: 5px 10px;
-        cursor: pointer;
+    /* ביטול מרווחים מיותרים */
+    .block-container { padding-top: 2rem; }
+    /* כפתורי איקונים גדולים */
+    .stButton button {
+        border-radius: 50px;
+        padding: 5px 15px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# יצירת תיקיית תמונות
+# יצירת תיקייה
 if not os.path.exists("coin_images"):
     os.makedirs("coin_images")
 
@@ -40,50 +39,54 @@ def load_data():
 def save_data(df):
     df.to_csv(DB_FILE, index=False)
 
-# אתחול מצב דפדוף במידה ולא קיים
-if "img_indices" not in st.session_state:
-    st.session_state.img_indices = {}
+# אתחול Session State
+if "img_indices" not in st.session_state: st.session_state.img_indices = {}
+if "temp_photos" not in st.session_state: st.session_state.temp_photos = []
 
 # --- ממשק משתמש ---
-st.title("🪙 קטלוג מטבעות חכם")
+st.title("🪙 קטלוג מטבעות")
 
-tab1, tab2 = st.tabs(["💎 הגלריה שלי", "➕ הוספת מטבע"])
+tab1, tab2 = st.tabs(["💎 גלריה", "➕ הוספה"])
 
-# --- טאב 2: הוספת מטבע (כולל מצלמה) ---
+# --- טאב הוספה (צילום רציף) ---
 with tab2:
-    st.header("הוספת פריט חדש")
-    with st.container(border=True):
-        new_name = st.text_input("שם המטבע:", key="new_name")
-        new_price = st.text_input("מחיר מבוקש:", key="new_price")
+    col_a, col_b = st.columns([2, 1])
+    with col_a:
+        name = st.text_input("שם הפריט", placeholder="למשל: שקל עתיק 1980")
+        price = st.text_input("מחיר", placeholder="מחיר בשח")
+    
+    # מצלמה
+    cam_photo = st.camera_input("📷 צלם תמונה")
+    if cam_photo:
+        # הוספה לרשימה זמנית רק אם היא לא שם
+        img_bytes = cam_photo.getvalue()
+        if img_bytes not in [p['bytes'] for p in st.session_state.temp_photos]:
+            st.session_state.temp_photos.append({'bytes': img_bytes, 'name': f"cam_{len(st.session_state.temp_photos)}.jpg"})
+            st.success(f"תמונה {len(st.session_state.temp_photos)} נוספה לרשימה")
+
+    # הצגת התמונות שצולמו לפני שמירה
+    if st.session_state.temp_photos:
+        st.write("תמונות שצולמו:")
+        cols = st.columns(4)
+        for i, p in enumerate(st.session_state.temp_photos):
+            with cols[i % 4]:
+                st.image(p['bytes'], width=80)
         
-        col_files, col_cam = st.columns(2)
-        with col_files:
-            up_files = st.file_uploader("העלה תמונות מהגלריה:", accept_multiple_files=True, type=['jpg','png','jpeg'])
-        with col_cam:
-            cam_file = st.camera_input("או צלם עכשיו:")
+        if st.button("💾 שמור הכל לקטלוג"):
+            saved_paths = []
+            for p in st.session_state.temp_photos:
+                path = os.path.join("coin_images", f"{name}_{p['name']}")
+                with open(path, "wb") as f: f.write(p['bytes'])
+                saved_paths.append(path)
+            
+            df = load_data()
+            new_row = {"id": len(df)+1, "name": name, "my_price": price, "images": "|".join(saved_paths)}
+            save_data(pd.concat([df, pd.DataFrame([new_row])], ignore_index=True))
+            st.session_state.temp_photos = [] # איפוס
+            st.success("נשמר!")
+            st.rerun()
 
-        if st.button("🚀 פרסם לקטלוג"):
-            all_images = []
-            # שמירת קבצים מהגלריה
-            if up_files:
-                for f in up_files:
-                    path = os.path.join("coin_images", f.name)
-                    with open(path, "wb") as file: file.write(f.getvalue())
-                    all_images.append(path)
-            # שמירת תמונה מהמצלמה
-            if cam_file:
-                path = os.path.join("coin_images", f"cam_{cam_file.name}.jpg")
-                with open(path, "wb") as file: file.write(cam_file.getvalue())
-                all_images.append(path)
-
-            if new_name and all_images:
-                df = load_data()
-                new_row = {"id": len(df)+1, "name": new_name, "my_price": new_price, "images": "|".join(all_images)}
-                pd.concat([df, pd.DataFrame([new_row])], ignore_index=True).to_csv(DB_FILE, index=False)
-                st.success("המטבע נוסף!")
-                st.rerun()
-
-# --- טאב 1: גלריה ועריכה ---
+# --- טאב גלריה ---
 with tab1:
     df = load_data()
     if df.empty:
@@ -91,66 +94,61 @@ with tab1:
     else:
         for idx, row in df.iterrows():
             with st.container(border=True):
-                col_display, col_info = st.columns([1, 1.5])
-                
                 img_list = str(row["images"]).split("|")
                 coin_id = str(row["id"])
                 
-                # ניהול אינדקס תמונה נוכחית
                 if coin_id not in st.session_state.img_indices:
                     st.session_state.img_indices[coin_id] = 0
                 
-                current_idx = st.session_state.img_indices[coin_id]
+                curr = st.session_state.img_indices[coin_id]
 
-                with col_display:
-                    # תצוגת התמונה בפורמט 1:1
-                    st.image(img_list[current_idx], use_container_width=True)
-                    
-                    # חצי דפדוף מתחת לתמונה (עובד מעולה במובייל)
-                    b_col1, b_col2, b_col3 = st.columns([1, 2, 1])
-                    if b_col1.button("⬅️", key=f"prev_{idx}"):
-                        st.session_state.img_indices[coin_id] = (current_idx - 1) % len(img_list)
+                # --- תצוגת קרוסלה עם חצים על התמונה (באמצעות Columns) ---
+                c_prev, c_img, c_next = st.columns([1, 6, 1])
+                
+                with c_prev:
+                    st.write(" ") # מרווח
+                    st.write(" ")
+                    if st.button("⬅️", key=f"p_{idx}"):
+                        st.session_state.img_indices[coin_id] = (curr - 1) % len(img_list)
                         st.rerun()
-                    b_col2.write(f"תמונה {current_idx+1} / {len(img_list)}")
-                    if b_col3.button("➡️", key=f"next_{idx}"):
-                        st.session_state.img_indices[coin_id] = (current_idx + 1) % len(img_list)
+                
+                with c_img:
+                    st.image(img_list[curr], use_container_width=True)
+                
+                with c_next:
+                    st.write(" ")
+                    st.write(" ")
+                    if st.button("➡️", key=f"n_{idx}"):
+                        st.session_state.img_indices[coin_id] = (curr + 1) % len(img_list)
                         st.rerun()
 
+                # פרטים ואיקוני ניהול
+                col_info, col_actions = st.columns([4, 1])
                 with col_info:
-                    st.subheader(row["name"])
-                    st.write(f"💰 מחיר: **{row['my_price']} ש''ח**")
+                    st.write(f"**{row['name']}** | 💰 {row['my_price']} ₪")
+                
+                with col_actions:
+                    edit_mode = st.toggle("✏️", key=f"edit_tgl_{idx}")
+
+                if edit_mode:
+                    new_n = st.text_input("שם", value=row["name"], key=f"name_{idx}")
+                    new_p = st.text_input("מחיר", value=row["my_price"], key=f"price_{idx}")
                     
-                    # --- מנגנון עריכה ---
-                    with st.expander("✏️ ערוך פרטים ותמונות"):
-                        edit_name = st.text_input("שנה שם:", value=row["name"], key=f"en_{idx}")
-                        edit_price = st.text_input("שנה מחיר:", value=row["my_price"], key=f"ep_{idx}")
-                        
-                        st.write("ניהול תמונות:")
-                        images_to_keep = []
-                        for i, img_p in enumerate(img_list):
-                            c1, c2 = st.columns([3, 1])
-                            c1.image(img_p, width=100)
-                            if not c2.checkbox("מחק", key=f"del_img_{idx}_{i}"):
-                                images_to_keep.append(img_p)
-                        
-                        new_imgs = st.file_uploader("הוסף עוד תמונות:", accept_multiple_files=True, key=f"au_{idx}")
-                        
-                        if st.button("שמור שינויים", key=f"save_{idx}"):
-                            # הוספת התמונות החדשות
-                            if new_imgs:
-                                for nf in new_imgs:
-                                    n_path = os.path.join("coin_images", nf.name)
-                                    with open(n_path, "wb") as f: f.write(nf.getvalue())
-                                    images_to_keep.append(n_path)
-                            
-                            df.at[idx, "name"] = edit_name
-                            df.at[idx, "my_price"] = edit_price
-                            df.at[idx, "images"] = "|".join(images_to_keep)
-                            save_data(df)
-                            st.success("עודכן!")
-                            st.rerun()
+                    # מחיקת תמונות ספציפיות
+                    keep_imgs = []
+                    for i, img_p in enumerate(img_list):
+                        col_i, col_d = st.columns([4, 1])
+                        col_i.image(img_p, width=50)
+                        if not col_d.button("🗑️", key=f"del_img_{idx}_{i}"):
+                            keep_imgs.append(img_p)
                     
-                    if st.button("🗑️ מחק מטבע מהקטלוג", key=f"full_del_{idx}"):
-                        df = df.drop(idx)
+                    if st.button("💾", key=f"save_btn_{idx}"):
+                        df.at[idx, "name"] = new_n
+                        df.at[idx, "my_price"] = new_p
+                        df.at[idx, "images"] = "|".join(keep_imgs)
                         save_data(df)
+                        st.rerun()
+                    
+                    if st.button("🗑️ מחק מטבע", key=f"full_del_{idx}"):
+                        df.drop(idx).to_csv(DB_FILE, index=False)
                         st.rerun()
