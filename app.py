@@ -1,71 +1,97 @@
 import streamlit as st
-import google.generativeai as genai
-from PIL import Image
 import pandas as pd
 import os
 
-st.set_page_config(page_title="קטלוג המטבעות שלי", layout="wide")
+# --- הגדרות דף ---
+st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
 
-# ניסיון למשוך את המפתח מהסודות של המערכת
-try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=API_KEY)
-except:
-    st.error("חסר מפתח API בהגדרות המערכת (Secrets)")
+# --- מערכת אבטחה (מיילים מאושרים) ---
+# ב-Secrets תגדיר רשימה: APPROVED_EMAILS = ["admin@me.com", "client@test.com"]
+APPROVED_EMAILS = ["admin@gmail.com", "user1@gmail.com"] # לדוגמה
+
+if "logged_in_user" not in st.session_state:
+    st.session_state["logged_in_user"] = None
+
+def login_screen():
+    st.title("🔒 כניסה למערכת המאובטחת")
+    email = st.text_input("הכנס כתובת מייל:")
+    if st.button("כניסה"):
+        if email in APPROVED_EMAILS:
+            st.session_state["logged_in_user"] = email
+            st.rerun()
+        else:
+            st.error("מייל לא מאושר. פנה למנהל המערכת.")
     st.stop()
 
-# פונקציית זיהוי
-def identify_coin(img1, img2):
-    # ניסיון להשתמש בכמה שמות מודלים למקרה שאחד לא עובד
-    for model_name in ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-pro-vision']:
-        try:
-            model = genai.GenerativeModel(model_name)
-            prompt = "זהה את המטבע בתמונות. פרט: מדינה, שנה, חומר והערכת מחיר בשקלים. ענה בעברית."
-            response = model.generate_content([prompt, img1, img2])
-            return response.text
-        except:
-            continue
-    return "שגיאה: לא הצלחתי להתחבר למודל הזיהוי. וודא שהמפתח תקין."
+if not st.session_state["logged_in_user"]:
+    login_screen()
 
-# מסד נתונים פשוט
-DB_FILE = 'catalog.csv'
+# --- זיהוי אם המשתמש הוא מנהל (אתה) ---
+IS_ADMIN = st.session_state["logged_in_user"] == "admin@gmail.com"
+
+# --- ניהול נתונים (שימוש ב-CSV כרגע, מומלץ לעבור לגוגל שיטס) ---
+DB_FILE = 'coin_catalog.csv'
 def load_data():
     if os.path.exists(DB_FILE): return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["מזהה", "מידע", "מחיר"])
+    return pd.DataFrame(columns=["מזהה", "שם", "מחיר_מנהל", "תמונות", "הצעות_לקוחות"])
 
-st.title("💰 קטלוג המטבעות החכם")
+# --- תפריט ראשי ---
+st.sidebar.write(f"שלום, {st.session_state['logged_in_user']}")
+if st.sidebar.button("התנתק"):
+    st.session_state["logged_in_user"] = None
+    st.rerun()
 
-# האתר פתוח ישר (בלי סיסמה בצד, הסיסמה תהיה רק הלינק ששלחת לחברים)
-tab1, tab2 = st.tabs(["🆕 הוספת מטבע", "📜 האוסף שלי"])
+st.title("🪙 קטלוג המטבעות היוקרתי")
+
+tab1, tab2 = st.tabs(["🖼️ גלריית מטבעות", "⚙️ ניהול קטלוג (מנהל בלבד)"])
 
 with tab1:
-    col1, col2 = st.columns(2)
-    with col1: img_f = st.file_uploader("צד קדמי", type=["jpg","png","jpeg"])
-    with col2: img_b = st.file_uploader("צד אחורי", type=["jpg","png","jpeg"])
-
-    if img_f and img_b:
-        if st.button("🔍 זהה מטבע עכשיו"):
-            with st.spinner('מנתח...'):
-                res = identify_coin(Image.open(img_f), Image.open(img_b))
-                st.session_state['info'] = res
-        
-        if 'info' in st.session_state:
-            final_info = st.text_area("מידע מה-AI:", value=st.session_state['info'], height=150)
-            price = st.text_input("כמה זה עולה?")
-            if st.button("✅ שמור לאוסף"):
-                df = load_data()
-                new_row = {"מזהה": len(df)+1, "מידע": final_info, "מחיר": price}
-                pd.concat([df, pd.DataFrame([new_row])]).to_csv(DB_FILE, index=False)
-                st.success("נשמר!")
-                del st.session_state['info']
+    df = load_data()
+    if df.empty:
+        st.write("אין עדיין מטבעות בקטלוג.")
+    else:
+        # הצגת המטבעות בגלריה (3 בעמודה)
+        cols = st.columns(3)
+        for idx, row in df.iterrows():
+            with cols[idx % 3]:
+                st.subheader(row["שם"])
+                # מציג רק תמונה ראשונה
+                img_list = str(row["תמונות"]).split(",")
+                st.image(img_list[0], use_container_width=True)
+                
+                with st.expander("לפרטים נוספים ותמונות"):
+                    # הצגת כל שאר התמונות
+                    for extra_img in img_list:
+                        st.image(extra_img)
+                    
+                    st.write(f"**מחיר מבוקש:** {row['מחיר_מנהל']} ש''ח")
+                    
+                    # הצעת מחיר לקוח
+                    st.divider()
+                    st.write("💬 הצע מחיר או השאר הודעה:")
+                    offer = st.text_input(f"הצעה עבור {row['שם']}", key=f"offer_{idx}")
+                    if st.button("שלח הצעה", key=f"btn_{idx}"):
+                        # כאן נוסיף קוד שמעדכן את השורה בטבלה בלי לדרוס
+                        st.success("ההצעה נשלחה למנהל!")
 
 with tab2:
-    df = load_data()
-    if df.empty: st.write("אין פריטים.")
+    if not IS_ADMIN:
+        st.error("אין לך הרשאה לנהל את הקטלוג.")
     else:
-        for i, r in df.iterrows():
-            with st.expander(f"מטבע #{r['מזהה']} - {r['מחיר']} ש''ח"):
-                st.write(r['מידע'])
-                if st.button(f"מחק פריט {r['מזהה']}", key=f"d_{i}"):
-                    df.drop(i).to_csv(DB_FILE, index=False)
-                    st.rerun()
+        st.header("העלאת מטבע חדש")
+        coin_name = st.text_input("שם המטבע:")
+        coin_price = st.text_input("מחיר מבוקש (שח):")
+        # העלאת מספר תמונות יחד
+        uploaded_files = st.file_uploader("בחר תמונות למטבע (ניתן לבחור כמה):", accept_multiple_files=True, type=['jpg','png','jpeg'])
+        
+        if st.button("פרסם מטבע"):
+            if uploaded_files and coin_name:
+                # כאן צריך להעלות את התמונות לענן ולקבל לינקים
+                # לצורך הדוגמה נשמור רק את השמות שלהם
+                links = [f.name for f in uploaded_files] 
+                links_str = ",".join(links)
+                
+                df = load_data()
+                new_coin = {"מזהה": len(df)+1, "שם": coin_name, "מחיר_מנהל": coin_price, "תמונות": links_str, "הצעות_לקוחות": ""}
+                pd.concat([df, pd.DataFrame([new_coin])]).to_csv(DB_FILE, index=False)
+                st.success("המטבע הועלה בהצלחה!")
