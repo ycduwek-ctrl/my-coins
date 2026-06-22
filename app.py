@@ -3,88 +3,88 @@ import pandas as pd
 import os
 from PIL import Image
 import time
+import base64
 import io
 
-# --- הגדרות עיצוב למראה נקי ---
-st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
+# --- הגדרות עיצוב לקרוסלה וגלילה ---
+st.set_page_config(page_title="Coin Catalog Swipe", layout="wide")
+
+def get_image_base64(path):
+    with open(path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
 
 st.markdown("""
 <style>
-    /* ריבוע 1:1 נקי לגלריה */
-    .stImage > img {
+    /* עיצוב הקרוסלה - מאפשר גלילה באצבע (Swipe) */
+    .scroll-container {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        gap: 5px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* מסתיר סרגל גלילה */
+    }
+    .scroll-container::-webkit-scrollbar { display: none; }
+    
+    .scroll-item {
+        flex: 0 0 100%; /* כל תמונה תופסת 100% מהרוחב */
+        scroll-snap-align: center;
         aspect-ratio: 1 / 1;
+    }
+    .scroll-item img {
+        width: 100%;
+        height: 100%;
         object-fit: cover;
-        border-radius: 8px;
-        margin-bottom: 0px;
+        border-radius: 10px;
     }
-    /* עיצוב החלונית הנפתחת (Expander) */
-    .stExpander {
-        border: none !important;
-        background-color: #f9f9f9 !important;
-        border-radius: 10px !important;
-        margin-top: 5px;
-    }
-    /* ביטול רווחים מיותרים בטאבים */
-    .stTabs [data-baseweb="tab-list"] { gap: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
-# פונקציה לחיתוך לריבוע (עבור תמונות שמועלות מהגלריה)
-def process_image(uploaded_file):
-    img = Image.open(uploaded_file)
-    # המרת תמונה ל-RGB (למקרה שהיא בפורמט אחר)
-    img = img.convert('RGB')
-    w, h = img.size
-    s = min(w, h)
-    l, t = (w-s)/2, (h-s)/2
-    return img.crop((l, t, l+s, t+s))
-
+# פונקציות בסיס
 IMG_DIR = "coin_images"
 if not os.path.exists(IMG_DIR): os.makedirs(IMG_DIR)
-
 DB_FILE = 'catalog_data.csv'
+
 def load_data():
     if os.path.exists(DB_FILE): return pd.read_csv(DB_FILE)
     return pd.DataFrame(columns=["id", "name", "price", "images"])
 
 def save_data(df): df.to_csv(DB_FILE, index=False)
 
-# --- תפריט צד (Sidebar) ---
-st.sidebar.title("🖼️ הגדרות תצוגה")
-view_mode = st.sidebar.radio("סגנון תצוגה:", ["גלריה (אינסטגרם)", "רשימה מפורטת"])
-grid_size = st.sidebar.slider("מטבעות בשורה (בגלריה)", 1, 4, 3)
+def process_image(uploaded_file):
+    img = Image.open(uploaded_file).convert('RGB')
+    w, h = img.size
+    s = min(w, h)
+    l, t = (w-s)/2, (h-s)/2
+    return img.crop((l, t, l+s, t+s))
 
-tab1, tab2 = st.tabs(["💎 הקטלוג שלי", "➕ הוספת מטבע"])
+# --- תפריט צד ---
+st.sidebar.title("🖼️ תצוגה")
+view_mode = st.sidebar.radio("סגנון:", ["גלריה", "רשימה"])
+grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 3)
 
-# --- טאב הוספה (העלאה מרובה מהגלריה) ---
+tab1, tab2 = st.tabs(["💎 הקטלוג", "➕ הוספה"])
+
+# --- טאב הוספה ---
 with tab2:
-    st.header("הוספת מטבע חדש")
-    with st.container(border=True):
-        c_name = st.text_input("שם המטבע:", key="add_n")
-        c_price = st.text_input("מחיר (₪):", key="add_p")
-        
-        # בחירת כמה תמונות שרוצים מהגלריה/קבצים בבת אחת
-        up_files = st.file_uploader("📸 בחר את כל תמונות המטבע:", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
-        
-        if st.button("💾 שמור לקטלוג", use_container_width=True):
-            if c_name and up_files:
-                final_paths = []
-                for f in up_files:
-                    # עיבוד התמונה לריבוע ושמירה
-                    sq_img = process_image(f)
-                    timestamp = int(time.time() * 1000)
-                    f_path = os.path.join(IMG_DIR, f"coin_{timestamp}_{f.name}")
-                    sq_img.save(f_path)
-                    final_paths.append(f_path)
-                
-                df = load_data()
-                new_row = {"id": len(df)+1, "name": c_name, "price": c_price, "images": "|".join(final_paths)}
-                save_data(pd.concat([df, pd.DataFrame([new_row])], ignore_index=True))
-                st.success(f"המטבע '{c_name}' נוסף בהצלחה!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("חובה להזין שם ולהעלות לפחות תמונה אחת.")
+    st.header("הוספת מטבע")
+    c_name = st.text_input("שם:", key="add_n")
+    c_price = st.text_input("מחיר:", key="add_p")
+    up_files = st.file_uploader("בחר תמונות:", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
+    
+    if st.button("💾 שמור", use_container_width=True):
+        if c_name and up_files:
+            paths = []
+            for f in up_files:
+                sq = process_image(f)
+                p = os.path.join(IMG_DIR, f"coin_{int(time.time()*1000)}_{f.name}")
+                sq.save(p)
+                paths.append(p)
+            df = load_data()
+            new = {"id": len(df)+1, "name": c_name, "price": c_price, "images": "|".join(paths)}
+            save_data(pd.concat([df, pd.DataFrame([new])], ignore_index=True))
+            st.success("נוסף!")
+            st.rerun()
 
 # --- טאב גלריה ---
 with tab1:
@@ -92,62 +92,47 @@ with tab1:
     if df.empty:
         st.info("הקטלוג ריק.")
     else:
-        if view_mode == "גלריה (אינסטגרם)":
+        if view_mode == "גלריה":
             cols = st.columns(grid_size)
             for idx, row in df.iterrows():
                 with cols[idx % grid_size]:
                     img_list = str(row["images"]).split("|")
-                    # מציג רק תמונה ראשית
-                    if os.path.exists(img_list[0]):
-                        st.image(img_list[0], use_container_width=True)
                     
-                    # חלונית ניהול (מוסתרת)
-                    with st.expander(f"🔍 ניהול ופרטים"):
-                        # עריכה בראש החלונית
-                        edit_n = st.text_input("שם:", value=str(row["name"]), key=f"en_{idx}")
-                        edit_p = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{idx}")
+                    # --- יצירת הקרוסלה ב-HTML כדי לאפשר Swipe ---
+                    carousel_html = '<div class="scroll-container">'
+                    for img_p in img_list:
+                        if os.path.exists(img_p):
+                            base64_img = get_image_base64(img_p)
+                            carousel_html += f'<div class="scroll-item"><img src="data:image/jpeg;base64,{base64_img}"></div>'
+                    carousel_html += '</div>'
+                    st.markdown(carousel_html, unsafe_allow_html=True)
+                    
+                    # חלונית ניהול
+                    with st.expander("🔍 פרטים וניהול"):
+                        en = st.text_input("שם:", value=str(row["name"]), key=f"en_{idx}")
+                        ep = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{idx}")
                         if st.button("💾 שמור שינויים", key=f"sv_{idx}"):
-                            df.at[idx, "name"], df.at[idx, "price"] = edit_n, edit_p
+                            df.at[idx, "name"], df.at[idx, "price"] = en, ep
                             save_data(df)
                             st.rerun()
                         
                         st.divider()
-                        st.write("כל תמונות המטבע:")
-                        keep_imgs = []
+                        st.write("מחיקת תמונות:")
+                        keep = []
                         for i, p in enumerate(img_list):
                             if os.path.exists(p):
-                                im_c, del_c = st.columns([4, 1])
-                                im_c.image(p, use_container_width=True)
-                                if not del_c.button("🗑️", key=f"di_{idx}_{i}"):
-                                    keep_imgs.append(p)
+                                c1, c2 = st.columns([4, 1])
+                                c1.image(p, width=60)
+                                if not c2.button("🗑️", key=f"di_{idx}_{i}"): keep.append(p)
                         
-                        # הוספת עוד תמונות למטבע קיים מהגלריה
-                        more_files = st.file_uploader("➕ הוסף עוד תמונות:", accept_multiple_files=True, key=f"add_more_{idx}")
-                        if st.button("✅ הוסף תמונות", key=f"btn_more_{idx}"):
-                            if more_files:
-                                for mf in more_files:
-                                    sq = process_image(mf)
-                                    p_path = os.path.join(IMG_DIR, f"extra_{int(time.time())}_{mf.name}")
-                                    sq.save(p_path)
-                                    keep_imgs.append(p_path)
-                                df.at[idx, "images"] = "|".join(keep_imgs)
-                                save_data(df)
-                                st.rerun()
-
-                        if len(keep_imgs) != len(img_list):
-                            df.at[idx, "images"] = "|".join(keep_imgs)
+                        if len(keep) != len(img_list):
+                            df.at[idx, "images"] = "|".join(keep)
                             save_data(df)
                             st.rerun()
 
-                        st.divider()
-                        if st.button("❌ מחק את כל הפריט", key=f"full_del_{idx}", use_container_width=True):
+                        if st.button("❌ מחק הכל", key=f"del_{idx}", use_container_width=True):
                             df.drop(idx).to_csv(DB_FILE, index=False)
                             st.rerun()
-
-        else: # תצוגת רשימה
+        else:
             for idx, row in df.iterrows():
-                with st.container(border=True):
-                    c1, c2 = st.columns([1, 4])
-                    img_list = str(row["images"]).split("|")
-                    c1.image(img_list[0], width=80)
-                    c2.write(f"**{row['name']}** | {row['price']} ₪")
+                st.write(f"**{row['name']}** | {row['price']} ₪")
