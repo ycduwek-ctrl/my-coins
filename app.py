@@ -5,43 +5,48 @@ from PIL import Image
 import time
 import io
 
-# --- הגדרות עיצוב מתקדמות להשגת המראה ששלחת ---
+# --- הגדרות עיצוב מתקדמות למראה נקי וצבעוני ---
 st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
 
 st.markdown("""
 <style>
-    /* הגדרות מצלמה ותמונות */
+    /* תמונות ריבועיות 1:1 */
     [data-testid="stCameraInput"] video { aspect-ratio: 1 / 1; object-fit: cover; border-radius: 15px; }
     .stImage > img { aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; }
     
-    /* עיצוב שורת הניהול כמו בתמונה */
+    /* מירכוז אלמנטים בשורה */
     div[data-testid="stHorizontalBlock"] {
         align-items: center;
-        gap: 5px;
+        gap: 2px;
+    }
+
+    /* עיצוב שדות הטקסט - צבעים לפי התמונה שלך */
+    /* שדה שם (אפור) */
+    div[data-testid="column"]:nth-of-type(4) input {
+        background-color: #f1f3f4 !important;
+        border-radius: 8px !important;
+        border: 1px solid #ccc !important;
+        text-align: center !important;
     }
     
-    /* שדה שם - רקע אפור */
-    div[data-testid="stTextInput"]:has(input[aria-label="name_field"]) input {
-        background-color: #f1f3f4;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: bold;
+    /* שדה מחיר (ירוק) */
+    div[data-testid="column"]:nth-of-type(3) input {
+        background-color: #e8f5e9 !important;
+        border-radius: 8px !important;
+        border: 1px solid #ccc !important;
+        color: #2e7d32 !important;
+        text-align: center !important;
+        font-weight: bold !important;
     }
-    
-    /* שדה מחיר - רקע ירוק בהיר */
-    div[data-testid="stTextInput"]:has(input[aria-label="price_field"]) input {
-        background-color: #e8f5e9;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: bold;
-        color: #2e7d32;
-    }
-    
-    /* עיצוב ה-Expander (ניהול ותמונות) */
-    .stExpander {
+
+    /* עיצוב כפתור השמירה */
+    div[data-testid="column"]:nth-of-type(2) button {
         border: 1px solid #ddd !important;
-        border-radius: 10px !important;
+        padding: 5px !important;
     }
+
+    /* הסתרת כותרות קטנות מעל השדות */
+    label { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,8 +81,8 @@ tab1, tab2 = st.tabs(["💎 הגלריה", "📸 הוספת מטבע"])
 # --- טאב הוספה ---
 with tab2:
     st.header("הוספת פריט")
-    coin_name = st.text_input("שם המטבע")
-    coin_price = st.text_input("מחיר (₪)")
+    coin_name = st.text_input("שם המטבע", key="input_name", label_visibility="visible")
+    coin_price = st.text_input("מחיר (₪)", key="input_price", label_visibility="visible")
     cam_shot = st.camera_input("צלם צד של המטבע")
     if cam_shot:
         if st.button("➕ הוסף תמונה זו"):
@@ -86,6 +91,7 @@ with tab2:
             sq_img.save(p)
             st.session_state.temp_list.append(p)
             st.toast("נוסף!")
+    
     if st.session_state.temp_list:
         cols = st.columns(5)
         for i, p in enumerate(st.session_state.temp_list):
@@ -116,27 +122,24 @@ with tab1:
                 if os.path.exists(img_list[0]):
                     st.image(img_list[0], use_container_width=True)
                 
-                # --- שורת הניהול המעוצבת לפי התמונה שלך ---
-                # חלוקת השורה לעמודות צפופות
-                c1, c2, c3, c4 = st.columns([1.8, 0.6, 1.2, 1.4])
+                # --- שורת הניהול לפי העיצוב שלך (מימין לשמאל) ---
+                c1, c2, c3, c4 = st.columns([1.6, 0.6, 1.2, 1.4])
                 
-                with c4: # שם המטבע (ימין)
-                    new_n = st.text_input("שם:", value=row["name"], key=f"n_{idx}", label_visibility="visible", aria_label="name_field")
+                with c4: # שם (צד ימין)
+                    new_n = st.text_input("שם", value=str(row["name"]), key=f"n_{idx}")
                 
-                with c3: # מחיר (מרכז-ימין)
-                    new_p = st.text_input("₪", value=row["price"], key=f"p_{idx}", label_visibility="visible", aria_label="price_field")
+                with c3: # מחיר
+                    new_p = st.text_input("מחיר", value=str(row["price"]), key=f"p_{idx}")
                 
-                with c2: # כפתור שמירה (מרכז-שמאל)
-                    st.write("") # מרווח גובה
-                    st.write("")
+                with c2: # שמירה
+                    st.write("") # מרווח גובה קטן ליישור
                     if st.button("💾", key=f"sv_{idx}"):
                         df.at[idx, "name"], df.at[idx, "price"] = new_n, new_p
                         save_data(df)
-                        st.toast("עודכן!")
+                        st.toast("נשמר!")
 
-                with c1: # כפתור ניהול (שמאל)
-                    with st.expander("🔍 תמונות וניהול"):
-                        st.write("תמונות נוספות:")
+                with c1: # ניהול (צד שמאל)
+                    with st.expander("🔍 ניהול"):
                         keep_imgs = []
                         for i, p in enumerate(img_list):
                             if os.path.exists(p):
@@ -145,11 +148,10 @@ with tab1:
                                 if not del_c.button("🗑️", key=f"dim_{idx}_{i}"):
                                     keep_imgs.append(p)
                         
-                        # הוספת תמונה חדשה למטבע קיים
-                        new_shot = st.camera_input("הוסף תמונה:", key=f"cam_add_{idx}")
-                        if new_shot:
-                            if st.button("➕ הוסף", key=f"btn_add_{idx}"):
-                                sq = crop_to_square(new_shot.getvalue())
+                        add_shot = st.camera_input("הוסף תמונה:", key=f"cam_add_{idx}")
+                        if add_shot:
+                            if st.button("➕", key=f"btn_add_{idx}"):
+                                sq = crop_to_square(add_shot.getvalue())
                                 n_p = os.path.join(IMG_DIR, f"extra_{int(time.time())}.jpg")
                                 sq.save(n_p)
                                 keep_imgs.append(n_p)
@@ -162,6 +164,6 @@ with tab1:
                             save_data(df)
                             st.rerun()
 
-                        if st.button("❌ מחק הכל", key=f"full_del_{idx}", use_container_width=True):
+                        if st.button("❌ מחק פריט", key=f"full_del_{idx}", use_container_width=True):
                             df.drop(idx).to_csv(DB_FILE, index=False)
                             st.rerun()
