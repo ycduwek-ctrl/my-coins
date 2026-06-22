@@ -1,97 +1,110 @@
 import streamlit as st
 import pandas as pd
 import os
+from PIL import Image
 
-# --- הגדרות דף ---
-st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
+# הגדרות דף
+st.set_page_config(page_title="קטלוג מטבעות", layout="wide")
 
-# --- מערכת אבטחה (מיילים מאושרים) ---
-# ב-Secrets תגדיר רשימה: APPROVED_EMAILS = ["admin@me.com", "client@test.com"]
-APPROVED_EMAILS = ["admin@gmail.com", "user1@gmail.com"] # לדוגמה
+# יצירת תיקיית תמונות אם לא קיימת
+if not os.path.exists("coin_images"):
+    os.makedirs("coin_images")
 
-if "logged_in_user" not in st.session_state:
-    st.session_state["logged_in_user"] = None
-
-def login_screen():
-    st.title("🔒 כניסה למערכת המאובטחת")
-    email = st.text_input("הכנס כתובת מייל:")
-    if st.button("כניסה"):
-        if email in APPROVED_EMAILS:
-            st.session_state["logged_in_user"] = email
-            st.rerun()
-        else:
-            st.error("מייל לא מאושר. פנה למנהל המערכת.")
-    st.stop()
-
-if not st.session_state["logged_in_user"]:
-    login_screen()
-
-# --- זיהוי אם המשתמש הוא מנהל (אתה) ---
-IS_ADMIN = st.session_state["logged_in_user"] == "admin@gmail.com"
-
-# --- ניהול נתונים (שימוש ב-CSV כרגע, מומלץ לעבור לגוגל שיטס) ---
-DB_FILE = 'coin_catalog.csv'
+# פונקציה לטעינת נתונים
+DB_FILE = 'catalog_data.csv'
 def load_data():
-    if os.path.exists(DB_FILE): return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["מזהה", "שם", "מחיר_מנהל", "תמונות", "הצעות_לקוחות"])
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["id", "name", "my_price", "images", "offers"])
 
-# --- תפריט ראשי ---
-st.sidebar.write(f"שלום, {st.session_state['logged_in_user']}")
-if st.sidebar.button("התנתק"):
-    st.session_state["logged_in_user"] = None
-    st.rerun()
+def save_data(df):
+    df.to_csv(DB_FILE, index=False)
 
-st.title("🪙 קטלוג המטבעות היוקרתי")
+# כותרת האתר
+st.markdown("<h1 style='text-align: center;'>🪙 קטלוג המטבעות שלי</h1>", unsafe_allow_html=True)
+st.divider()
 
-tab1, tab2 = st.tabs(["🖼️ גלריית מטבעות", "⚙️ ניהול קטלוג (מנהל בלבד)"])
+# תפריט עליון
+tab1, tab2 = st.tabs(["💎 הגלריה", "➕ הוספת מטבע (ניהול)"])
 
+# --- טאב ניהול: הוספת מטבעות ---
+with tab2:
+    st.header("הוספת מטבע חדש לקטלוג")
+    with st.form("add_form", clear_on_submit=True):
+        name = st.text_input("שם המטבע / תיאור:")
+        price = st.text_input("מחיר מבוקש (שח):")
+        uploaded_files = st.file_uploader("בחר תמונות (ניתן לבחור כמה ביחד):", accept_multiple_files=True, type=['jpg','png','jpeg'])
+        submit = st.form_submit_state = st.form_submit_button("פרסם בקטלוג")
+        
+        if submit and name and uploaded_files:
+            image_paths = []
+            for f in uploaded_files:
+                path = os.path.join("coin_images", f.name)
+                with open(path, "wb") as file:
+                    file.write(f.getvalue())
+                image_paths.append(path)
+            
+            df = load_data()
+            new_id = len(df) + 1
+            new_row = {
+                "id": new_id,
+                "name": name,
+                "my_price": price,
+                "images": "|".join(image_paths),
+                "offers": ""
+            }
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            save_data(df)
+            st.success(f"המטבע '{name}' נוסף בהצלחה!")
+
+# --- טאב גלריה: הצגת המטבעות ---
 with tab1:
     df = load_data()
     if df.empty:
-        st.write("אין עדיין מטבעות בקטלוג.")
+        st.info("הקטלוג כרגע ריק. הוסף מטבעות בטאב הניהול.")
     else:
-        # הצגת המטבעות בגלריה (3 בעמודה)
+        # יצירת גריד של 3 עמודות
         cols = st.columns(3)
         for idx, row in df.iterrows():
             with cols[idx % 3]:
-                st.subheader(row["שם"])
-                # מציג רק תמונה ראשונה
-                img_list = str(row["תמונות"]).split(",")
+                # הצגת התמונה הראשונה כראשי
+                img_list = str(row["images"]).split("|")
                 st.image(img_list[0], use_container_width=True)
+                st.subheader(row["name"])
                 
-                with st.expander("לפרטים נוספים ותמונות"):
-                    # הצגת כל שאר התמונות
-                    for extra_img in img_list:
-                        st.image(extra_img)
-                    
-                    st.write(f"**מחיר מבוקש:** {row['מחיר_מנהל']} ש''ח")
-                    
-                    # הצעת מחיר לקוח
-                    st.divider()
-                    st.write("💬 הצע מחיר או השאר הודעה:")
-                    offer = st.text_input(f"הצעה עבור {row['שם']}", key=f"offer_{idx}")
-                    if st.button("שלח הצעה", key=f"btn_{idx}"):
-                        # כאן נוסיף קוד שמעדכן את השורה בטבלה בלי לדרוס
-                        st.success("ההצעה נשלחה למנהל!")
+                if row["my_price"]:
+                    st.write(f"**מחיר מבוקש:** {row['my_price']} ש''ח")
+                else:
+                    st.write("**מחיר:** לא צוין")
 
-with tab2:
-    if not IS_ADMIN:
-        st.error("אין לך הרשאה לנהל את הקטלוג.")
-    else:
-        st.header("העלאת מטבע חדש")
-        coin_name = st.text_input("שם המטבע:")
-        coin_price = st.text_input("מחיר מבוקש (שח):")
-        # העלאת מספר תמונות יחד
-        uploaded_files = st.file_uploader("בחר תמונות למטבע (ניתן לבחור כמה):", accept_multiple_files=True, type=['jpg','png','jpeg'])
-        
-        if st.button("פרסם מטבע"):
-            if uploaded_files and coin_name:
-                # כאן צריך להעלות את התמונות לענן ולקבל לינקים
-                # לצורך הדוגמה נשמור רק את השמות שלהם
-                links = [f.name for f in uploaded_files] 
-                links_str = ",".join(links)
+                # כפתור פרטים נוספים
+                with st.expander("🔍 לצפייה בכל התמונות והצעת מחיר"):
+                    # הצגת כל התמונות של המטבע
+                    for img_path in img_list:
+                        st.image(img_path, use_container_width=True)
+                    
+                    st.divider()
+                    # מערכת הצעות מחיר
+                    st.write("💬 הצעת מחיר משלך:")
+                    new_offer = st.text_input("הכנס סכום:", key=f"in_{idx}")
+                    if st.button("שלח הצעה", key=f"btn_{idx}"):
+                        if new_offer:
+                            current_offers = str(row["offers"])
+                            updated_offers = current_offers + f" | {new_offer}" if current_offers else new_offer
+                            df.at[idx, "offers"] = updated_offers
+                            save_data(df)
+                            st.success("ההצעה נשלחה!")
                 
-                df = load_data()
-                new_coin = {"מזהה": len(df)+1, "שם": coin_name, "מחיר_מנהל": coin_price, "תמונות": links_str, "הצעות_לקוחות": ""}
-                pd.concat([df, pd.DataFrame([new_coin])]).to_csv(DB_FILE, index=False)
-                st.success("המטבע הועלה בהצלחה!")
+                # אפשרות מחיקה למנהל (מוצג לכולם כרגע כי אין סיסמה)
+                if st.button(f"🗑️ מחק מטבע", key=f"del_{idx}"):
+                    df = df.drop(idx)
+                    save_data(df)
+                    st.rerun()
+
+# הצגת הצעות למנהל בתחתית הדף בצורה שקטה
+if not df.empty:
+    st.divider()
+    with st.expander("📩 צפייה בהצעות מחיר שנשלחו (למנהל בלבד)"):
+        for idx, row in df.iterrows():
+            if row["offers"]:
+                st.write(f"**{row['name']}:** {row['offers']}")
