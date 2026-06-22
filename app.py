@@ -5,8 +5,8 @@ from PIL import Image
 import time
 import io
 
-# --- הגדרות עיצוב מתקדמות למראה נקי וצבעוני ---
-st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
+# --- הגדרות עיצוב ---
+st.set_page_config(page_title="Coin Catalog", layout="wide")
 
 st.markdown("""
 <style>
@@ -14,39 +14,19 @@ st.markdown("""
     [data-testid="stCameraInput"] video { aspect-ratio: 1 / 1; object-fit: cover; border-radius: 15px; }
     .stImage > img { aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; }
     
-    /* מירכוז אלמנטים בשורה */
-    div[data-testid="stHorizontalBlock"] {
-        align-items: center;
-        gap: 2px;
-    }
-
-    /* עיצוב שדות הטקסט - צבעים לפי התמונה שלך */
-    /* שדה שם (אפור) */
-    div[data-testid="column"]:nth-of-type(4) input {
-        background-color: #f1f3f4 !important;
-        border-radius: 8px !important;
-        border: 1px solid #ccc !important;
-        text-align: center !important;
+    /* עיצוב כותרות מעל התמונה */
+    .coin-label {
+        font-size: 14px;
+        font-weight: bold;
+        margin-bottom: -10px;
+        color: #555;
     }
     
-    /* שדה מחיר (ירוק) */
-    div[data-testid="column"]:nth-of-type(3) input {
-        background-color: #e8f5e9 !important;
+    /* עיצוב שדות הטקסט של השם והמחיר */
+    div[data-testid="stTextInput"] input {
         border-radius: 8px !important;
-        border: 1px solid #ccc !important;
-        color: #2e7d32 !important;
-        text-align: center !important;
-        font-weight: bold !important;
+        margin-bottom: 5px;
     }
-
-    /* עיצוב כפתור השמירה */
-    div[data-testid="column"]:nth-of-type(2) button {
-        border: 1px solid #ddd !important;
-        padding: 5px !important;
-    }
-
-    /* הסתרת כותרות קטנות מעל השדות */
-    label { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,23 +60,24 @@ tab1, tab2 = st.tabs(["💎 הגלריה", "📸 הוספת מטבע"])
 
 # --- טאב הוספה ---
 with tab2:
-    st.header("הוספת פריט")
-    coin_name = st.text_input("שם המטבע", key="input_name", label_visibility="visible")
-    coin_price = st.text_input("מחיר (₪)", key="input_price", label_visibility="visible")
+    st.header("הוספת פריט חדש")
+    coin_name = st.text_input("שם המטבע:", key="main_input_name")
+    coin_price = st.text_input("מחיר (₪):", key="main_input_price")
     cam_shot = st.camera_input("צלם צד של המטבע")
+    
     if cam_shot:
         if st.button("➕ הוסף תמונה זו"):
             sq_img = crop_to_square(cam_shot.getvalue())
             p = f"temp_{int(time.time()*1000)}.jpg"
             sq_img.save(p)
             st.session_state.temp_list.append(p)
-            st.toast("נוסף!")
-    
+            st.toast("תמונה נוספה לרשימה")
+
     if st.session_state.temp_list:
         cols = st.columns(5)
         for i, p in enumerate(st.session_state.temp_list):
             cols[i % 5].image(p, width=70)
-        if st.button("💾 שמור הכל", use_container_width=True):
+        if st.button("💾 שמור הכל לקטלוג", use_container_width=True):
             if coin_name:
                 final_paths = []
                 for p in st.session_state.temp_list:
@@ -107,6 +88,7 @@ with tab2:
                 new_row = {"id": len(df)+1, "name": coin_name, "price": coin_price, "images": "|".join(final_paths)}
                 save_data(pd.concat([df, pd.DataFrame([new_row])], ignore_index=True))
                 st.session_state.temp_list = []
+                st.success("נשמר בהצלחה!")
                 st.rerun()
 
 # --- טאב גלריה ---
@@ -118,52 +100,54 @@ with tab1:
         cols = st.columns(grid_size)
         for idx, row in df.iterrows():
             with cols[idx % grid_size]:
+                # --- מידע מעל התמונה ---
+                st.markdown(f'<p class="coin-label">שם:</p>', unsafe_allow_html=True)
+                new_n = st.text_input("", value=str(row["name"]), key=f"n_{idx}")
+                
+                st.markdown(f'<p class="coin-label">מחיר:</p>', unsafe_allow_html=True)
+                c_price, c_save = st.columns([3, 1])
+                new_p = c_price.text_input("", value=str(row["price"]), key=f"p_{idx}")
+                if c_save.button("💾", key=f"sv_{idx}"):
+                    df.at[idx, "name"], df.at[idx, "price"] = new_n, new_p
+                    save_data(df)
+                    st.toast("הפרטים עודכנו!")
+
+                # --- התמונה ---
                 img_list = str(row["images"]).split("|")
                 if os.path.exists(img_list[0]):
                     st.image(img_list[0], use_container_width=True)
                 
-                # --- שורת הניהול לפי העיצוב שלך (מימין לשמאל) ---
-                c1, c2, c3, c4 = st.columns([1.6, 0.6, 1.2, 1.4])
-                
-                with c4: # שם (צד ימין)
-                    new_n = st.text_input("שם", value=str(row["name"]), key=f"n_{idx}")
-                
-                with c3: # מחיר
-                    new_p = st.text_input("מחיר", value=str(row["price"]), key=f"p_{idx}")
-                
-                with c2: # שמירה
-                    st.write("") # מרווח גובה קטן ליישור
-                    if st.button("💾", key=f"sv_{idx}"):
-                        df.at[idx, "name"], df.at[idx, "price"] = new_n, new_p
+                # --- כפתור נפתח מתחת לתמונה ---
+                with st.expander("🔍 תמונות נוספות וניהול"):
+                    st.write("גלריית תמונות:")
+                    keep_imgs = []
+                    for i, p in enumerate(img_list):
+                        if os.path.exists(p):
+                            im_c, del_c = st.columns([4, 1])
+                            im_c.image(p, use_container_width=True)
+                            if del_c.button("🗑️", key=f"dim_{idx}_{i}"):
+                                pass # לא מוסיפים ל-keep_imgs
+                            else:
+                                keep_imgs.append(p)
+                    
+                    if len(keep_imgs) != len(img_list):
+                        df.at[idx, "images"] = "|".join(keep_imgs)
                         save_data(df)
-                        st.toast("נשמר!")
+                        st.rerun()
 
-                with c1: # ניהול (צד שמאל)
-                    with st.expander("🔍 ניהול"):
-                        keep_imgs = []
-                        for i, p in enumerate(img_list):
-                            if os.path.exists(p):
-                                im_c, del_c = st.columns([4, 1])
-                                im_c.image(p, use_container_width=True)
-                                if not del_c.button("🗑️", key=f"dim_{idx}_{i}"):
-                                    keep_imgs.append(p)
-                        
-                        add_shot = st.camera_input("הוסף תמונה:", key=f"cam_add_{idx}")
-                        if add_shot:
-                            if st.button("➕", key=f"btn_add_{idx}"):
-                                sq = crop_to_square(add_shot.getvalue())
-                                n_p = os.path.join(IMG_DIR, f"extra_{int(time.time())}.jpg")
-                                sq.save(n_p)
-                                keep_imgs.append(n_p)
-                                df.at[idx, "images"] = "|".join(keep_imgs)
-                                save_data(df)
-                                st.rerun()
-
-                        if len(keep_imgs) != len(img_list):
+                    st.divider()
+                    add_shot = st.camera_input("הוסף תמונה חדשה:", key=f"cam_add_{idx}")
+                    if add_shot:
+                        if st.button("✅ הוסף תמונה", key=f"btn_add_{idx}"):
+                            sq = crop_to_square(add_shot.getvalue())
+                            n_p = os.path.join(IMG_DIR, f"extra_{int(time.time())}.jpg")
+                            sq.save(n_p)
+                            keep_imgs.append(n_p)
                             df.at[idx, "images"] = "|".join(keep_imgs)
                             save_data(df)
                             st.rerun()
 
-                        if st.button("❌ מחק פריט", key=f"full_del_{idx}", use_container_width=True):
-                            df.drop(idx).to_csv(DB_FILE, index=False)
-                            st.rerun()
+                    st.divider()
+                    if st.button("❌ מחק את כל הפריט", key=f"full_del_{idx}", use_container_width=True):
+                        df.drop(idx).to_csv(DB_FILE, index=False)
+                        st.rerun()
