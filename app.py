@@ -98,3 +98,70 @@ with tab2:
                     os.rename(p, f_p)
                     final_paths.append(f_p)
                 df = load_data()
+                new_row = {"id": len(df)+1, "name": coin_name, "price": coin_price, "images": "|".join(final_paths)}
+                save_data(pd.concat([df, pd.DataFrame([new_row])], ignore_index=True))
+                st.session_state.temp_list = []
+                st.rerun()
+
+# --- טאב גלריה ---
+with tab1:
+    df = load_data()
+    if df.empty:
+        st.info("הקטלוג ריק.")
+    else:
+        cols = st.columns(grid_size)
+        for idx, row in df.iterrows():
+            with cols[idx % grid_size]:
+                img_list = str(row["images"]).split("|")
+                if os.path.exists(img_list[0]):
+                    st.image(img_list[0], use_container_width=True)
+                
+                # --- שורת הניהול המעוצבת לפי התמונה שלך ---
+                # חלוקת השורה לעמודות צפופות
+                c1, c2, c3, c4 = st.columns([1.8, 0.6, 1.2, 1.4])
+                
+                with c4: # שם המטבע (ימין)
+                    new_n = st.text_input("שם:", value=row["name"], key=f"n_{idx}", label_visibility="visible", aria_label="name_field")
+                
+                with c3: # מחיר (מרכז-ימין)
+                    new_p = st.text_input("₪", value=row["price"], key=f"p_{idx}", label_visibility="visible", aria_label="price_field")
+                
+                with c2: # כפתור שמירה (מרכז-שמאל)
+                    st.write("") # מרווח גובה
+                    st.write("")
+                    if st.button("💾", key=f"sv_{idx}"):
+                        df.at[idx, "name"], df.at[idx, "price"] = new_n, new_p
+                        save_data(df)
+                        st.toast("עודכן!")
+
+                with c1: # כפתור ניהול (שמאל)
+                    with st.expander("🔍 תמונות וניהול"):
+                        st.write("תמונות נוספות:")
+                        keep_imgs = []
+                        for i, p in enumerate(img_list):
+                            if os.path.exists(p):
+                                im_c, del_c = st.columns([4, 1])
+                                im_c.image(p, use_container_width=True)
+                                if not del_c.button("🗑️", key=f"dim_{idx}_{i}"):
+                                    keep_imgs.append(p)
+                        
+                        # הוספת תמונה חדשה למטבע קיים
+                        new_shot = st.camera_input("הוסף תמונה:", key=f"cam_add_{idx}")
+                        if new_shot:
+                            if st.button("➕ הוסף", key=f"btn_add_{idx}"):
+                                sq = crop_to_square(new_shot.getvalue())
+                                n_p = os.path.join(IMG_DIR, f"extra_{int(time.time())}.jpg")
+                                sq.save(n_p)
+                                keep_imgs.append(n_p)
+                                df.at[idx, "images"] = "|".join(keep_imgs)
+                                save_data(df)
+                                st.rerun()
+
+                        if len(keep_imgs) != len(img_list):
+                            df.at[idx, "images"] = "|".join(keep_imgs)
+                            save_data(df)
+                            st.rerun()
+
+                        if st.button("❌ מחק הכל", key=f"full_del_{idx}", use_container_width=True):
+                            df.drop(idx).to_csv(DB_FILE, index=False)
+                            st.rerun()
