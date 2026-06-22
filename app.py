@@ -2,33 +2,29 @@ import streamlit as st
 import pandas as pd
 import os
 from PIL import Image
-import io
 
-# --- הגדרות עיצוב מתקדמות ---
-st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
+# --- הגדרות עיצוב אינסטגרם ---
+st.set_page_config(page_title="Coin Gallery", layout="wide")
 
 st.markdown("""
 <style>
-    /* הפיכת תמונות לריבוע 1:1 עם איכות גבוהה */
+    /* ריבוע 1:1 נקי */
     .stImage > img {
         aspect-ratio: 1 / 1;
         object-fit: cover;
-        border-radius: 12px;
+        border-radius: 5px;
+        margin-bottom: 0px;
     }
-    /* מירכוז אנכי של חצים בצידי התמונה */
-    [data-testid="column"] {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    /* עיצוב כפתורי איקונים */
-    .stButton button {
-        background-color: transparent !important;
+    /* צמצום מרווחים בין אלמנטים */
+    .stExpander {
         border: none !important;
-        font-size: 25px !important;
+        box-shadow: none !important;
+        background-color: transparent !important;
     }
-    /* ביטול מרווח עליון */
-    .block-container { padding-top: 1rem; }
+    /* הסתרת מסגרות מיותרות */
+    [data-testid="stVerticalBlock"] > div:contains("🔍") {
+        padding-top: 0px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -37,50 +33,47 @@ if not os.path.exists("coin_images"):
     os.makedirs("coin_images")
 
 DB_FILE = 'catalog_data.csv'
-
 def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["id", "name", "my_price", "images"])
+    if os.path.exists(DB_FILE): return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["id", "name", "price", "images"])
 
-def save_data(df):
-    df.to_csv(DB_FILE, index=False)
+def save_data(df): df.to_csv(DB_FILE, index=False)
 
-# אתחול Session State
-if "img_indices" not in st.session_state: st.session_state.img_indices = {}
+# --- תפריט צד (Sidebar) ---
+st.sidebar.title("⚙️ הגדרות תצוגה")
+grid_size = st.sidebar.slider("כמה מטבעות בשורה?", 1, 4, 3)
 
-# --- ממשק משתמש ---
-st.title("🪙 קטלוג מטבעות")
+# --- טאבים ---
+tab1, tab2 = st.tabs(["🖼️ גלריה", "📸 הוספה"])
 
-tab1, tab2 = st.tabs(["💎 גלריה", "➕ הוספה"])
-
-# --- טאב הוספה (איכות גבוהה) ---
+# --- טאב הוספה ---
 with tab2:
-    st.header("הוספת פריט")
-    name = st.text_input("שם המטבע", placeholder="תיאור קצר...")
-    price = st.text_input("מחיר", placeholder="מחיר בשח")
-    
-    # שימוש ב-file_uploader עבור איכות מצלמה מקסימלית במובייל
-    up_files = st.file_uploader("📸 צלם או בחר תמונות (איכות גבוהה)", 
-                                accept_multiple_files=True, 
-                                type=['jpg','png','jpeg'])
-    
-    if st.button("💾 שמור הכל", use_container_width=True):
-        if name and up_files:
-            saved_paths = []
-            for f in up_files:
-                path = os.path.join("coin_images", f"{name}_{f.name}")
-                with open(path, "wb") as file:
-                    file.write(f.getvalue())
-                saved_paths.append(path)
+    st.header("העלאה לקטלוג")
+    with st.container(border=True):
+        name = st.text_input("שם", placeholder="שם המטבע")
+        price = st.text_input("מחיר", placeholder="₪")
+        
+        up_files = st.file_uploader("בחר תמונות מהגלריה", accept_multiple_files=True)
+        cam_file = st.camera_input("או צלם תמונה")
+        
+        if st.button("💾 שמור"):
+            all_paths = []
+            if up_files:
+                for f in up_files:
+                    p = os.path.join("coin_images", f.name)
+                    with open(p, "wb") as file: file.write(f.getvalue())
+                    all_paths.append(p)
+            if cam_file:
+                p = os.path.join("coin_images", f"cam_{cam_file.name}.jpg")
+                with open(p, "wb") as file: file.write(cam_file.getvalue())
+                all_paths.append(p)
             
-            df = load_data()
-            new_row = {"id": len(df)+1, "name": name, "my_price": price, "images": "|".join(saved_paths)}
-            save_data(pd.concat([df, pd.DataFrame([new_row])], ignore_index=True))
-            st.success("המטבע נוסף בהצלחה!")
-            st.rerun()
-        else:
-            st.error("חובה להזין שם ולהעלות לפחות תמונה אחת.")
+            if name and all_paths:
+                df = load_data()
+                new_row = {"id": len(df)+1, "name": name, "price": price, "images": "|".join(all_paths)}
+                save_data(pd.concat([df, pd.DataFrame([new_row])], ignore_index=True))
+                st.success("נוסף!")
+                st.rerun()
 
 # --- טאב גלריה ---
 with tab1:
@@ -88,66 +81,49 @@ with tab1:
     if df.empty:
         st.info("הקטלוג ריק.")
     else:
+        # יצירת גריד דינמי לפי בחירת המשתמש
+        cols = st.columns(grid_size)
         for idx, row in df.iterrows():
-            with st.container(border=True):
+            with cols[idx % grid_size]:
                 img_list = str(row["images"]).split("|")
-                coin_id = str(row["id"])
+                # תצוגה ראשית (רק התמונה)
+                st.image(img_list[0], use_container_width=True)
                 
-                if coin_id not in st.session_state.img_indices:
-                    st.session_state.img_indices[coin_id] = 0
-                
-                curr = st.session_state.img_indices[coin_id]
-
-                # --- קרוסלה עם חצים במרכז הגובה ---
-                col_left, col_mid, col_right = st.columns([1, 6, 1])
-                
-                with col_left:
-                    if st.button("⬅️", key=f"p_{idx}"):
-                        st.session_state.img_indices[coin_id] = (curr - 1) % len(img_list)
-                        st.rerun()
-                
-                with col_mid:
-                    st.image(img_list[curr], use_container_width=True)
-                
-                with col_right:
-                    if st.button("➡️", key=f"n_{idx}"):
-                        st.session_state.img_indices[coin_id] = (curr + 1) % len(img_list)
-                        st.rerun()
-
-                # שורת מידע ואיקונים
-                info_c, edit_c = st.columns([4, 1])
-                info_c.subheader(f"{row['name']} | 💰 {row['my_price']} ₪")
-                
-                edit_mode = edit_c.toggle("✏️", key=f"ed_tgl_{idx}")
-
-                if edit_mode:
-                    new_n = st.text_input("שם פריט", value=row["name"], key=f"nm_{idx}")
-                    new_p = st.text_input("מחיר פריט", value=row["my_price"], key=f"pr_{idx}")
+                # פרטים נוספים (מוסתרים)
+                with st.expander(f"🔍 {row['name']}"):
+                    st.write(f"💰 מחיר: {row['price']} ₪")
                     
-                    st.write("ניהול תמונות:")
-                    keep_imgs = []
-                    for i, img_p in enumerate(img_list):
-                        img_col, del_col = st.columns([4, 1])
-                        img_col.image(img_p, width=80)
-                        if not del_col.button("🗑️", key=f"di_{idx}_{i}"):
-                            keep_imgs.append(img_p)
+                    # קרוסלה פנימית של שאר התמונות
+                    if len(img_list) > 1:
+                        st.write("תמונות נוספות:")
+                        for extra_img in img_list:
+                            st.image(extra_img, use_container_width=True)
                     
-                    # הוספת תמונות נוספות למטבע קיים
-                    more_files = st.file_uploader("➕ הוסף תמונות", accept_multiple_files=True, key=f"af_{idx}")
+                    st.divider()
                     
-                    if st.button("💾 שמור שינויים", key=f"sv_{idx}"):
-                        if more_files:
-                            for f in more_files:
-                                p = os.path.join("coin_images", f.name)
-                                with open(p, "wb") as file: file.write(f.getvalue())
-                                keep_imgs.append(p)
+                    # מצב עריכה
+                    edit_col, del_col = st.columns(2)
+                    show_edit = edit_col.toggle("✏️", key=f"ed_{idx}")
+                    
+                    if show_edit:
+                        new_n = st.text_input("שם", value=row["name"], key=f"n_{idx}")
+                        new_p = st.text_input("מחיר", value=row["price"], key=f"p_{idx}")
                         
-                        df.at[idx, "name"] = new_n
-                        df.at[idx, "my_price"] = new_p
-                        df.at[idx, "images"] = "|".join(keep_imgs)
-                        save_data(df)
-                        st.rerun()
-                    
-                    if st.button("🗑️ מחק הכל", key=f"full_d_{idx}"):
-                        df.drop(idx).to_csv(DB_FILE, index=False)
-                        st.rerun()
+                        # ניהול תמונות קיימות
+                        keep = []
+                        for i, p in enumerate(img_list):
+                            c1, c2 = st.columns([4,1])
+                            c1.image(p, width=50)
+                            if not c2.button("🗑️", key=f"di_{idx}_{i}"):
+                                keep.append(p)
+                        
+                        if st.button("💾", key=f"sv_{idx}"):
+                            df.at[idx, "name"] = new_n
+                            df.at[idx, "price"] = new_p
+                            df.at[idx, "images"] = "|".join(keep)
+                            save_data(df)
+                            st.rerun()
+                        
+                        if st.button("🗑️ מחק הכל", key=f"fdel_{idx}"):
+                            df.drop(idx).to_csv(DB_FILE, index=False)
+                            st.rerun()
