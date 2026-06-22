@@ -6,8 +6,8 @@ import time
 import base64
 import io
 
-# --- הגדרות עיצוב מתקדמות ---
-st.set_page_config(page_title="Coin Collection Pro", layout="wide")
+# --- הגדרות עיצוב למראה אינסטגרם נקי ---
+st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
 
 def get_image_base64(path):
     with open(path, "rb") as img_file:
@@ -15,6 +15,7 @@ def get_image_base64(path):
 
 st.markdown("""
 <style>
+    /* קרוסלת Swipe */
     .scroll-container {
         display: flex;
         overflow-x: auto;
@@ -34,22 +35,25 @@ st.markdown("""
         height: 100%;
         object-fit: cover;
         border-radius: 12px;
-        cursor: pointer;
     }
-    /* עיצוב כפתור הלייק */
-    .like-btn { font-size: 24px; cursor: pointer; }
+    /* עיצוב החלונית */
+    .stExpander {
+        border: none !important;
+        background-color: #f9f9f9 !important;
+        border-radius: 10px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# פונקציות עיבוד
+# פונקציות בסיס
 IMG_DIR = "coin_images"
 if not os.path.exists(IMG_DIR): os.makedirs(IMG_DIR)
-DB_FILE = 'catalog_data_v2.csv'
+DB_FILE = 'catalog_data_v3.csv'
 
 def load_data():
     if os.path.exists(DB_FILE):
         return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["id", "name", "price", "images", "comments", "likes"])
+    return pd.DataFrame(columns=["id", "name", "price", "images", "comments"])
 
 def save_data(df):
     df.to_csv(DB_FILE, index=False)
@@ -62,14 +66,15 @@ def process_image(uploaded_file):
     return img.crop((l, t, l+s, t+s))
 
 # --- תפריט צד ---
-st.sidebar.title("🖼️ תצוגה")
+st.sidebar.title("🖼️ הגדרות תצוגה")
+view_mode = st.sidebar.radio("סגנון:", ["גלריה", "רשימה"])
 grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 3)
 
 tab1, tab2 = st.tabs(["💎 הקטלוג", "➕ הוספה"])
 
 # --- טאב הוספה ---
 with tab2:
-    st.header("הוספת מטבע")
+    st.header("הוספת מטבע חדש")
     c_name = st.text_input("שם המטבע:", key="add_n")
     c_price = st.text_input("מחיר (₪):", key="add_p")
     up_files = st.file_uploader("בחר תמונות מהגלריה:", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
@@ -83,7 +88,7 @@ with tab2:
                 sq.save(p)
                 paths.append(p)
             df = load_data()
-            new = {"id": len(df)+1, "name": c_name, "price": c_price, "images": "|".join(paths), "comments": "", "likes": 0}
+            new = {"id": len(df)+1, "name": c_name, "price": c_price, "images": "|".join(paths), "comments": ""}
             save_data(pd.concat([df, pd.DataFrame([new])], ignore_index=True))
             st.success("נוסף בהצלחה!")
             st.rerun()
@@ -94,64 +99,76 @@ with tab1:
     if df.empty:
         st.info("הקטלוג ריק.")
     else:
-        cols = st.columns(grid_size)
-        for idx, row in df.iterrows():
-            with cols[idx % grid_size]:
-                img_list = str(row["images"]).split("|")
-                
-                # --- קרוסלת Swipe ---
-                carousel_html = '<div class="scroll-container">'
-                for img_p in img_list:
-                    if os.path.exists(img_p):
-                        base64_img = get_image_base64(img_p)
-                        carousel_html += f'<div class="scroll-item"><img src="data:image/jpeg;base64,{base64_img}"></div>'
-                carousel_html += '</div>'
-                st.markdown(carousel_html, unsafe_allow_html=True)
-                
-                # שורת לייק ושם מהירה
-                l_col, n_col = st.columns([1, 4])
-                if l_col.button(f"{'🟡' if row['likes'] > 0 else '🪙'}", key=f"like_{idx}"):
-                    df.at[idx, 'likes'] = 1 - row['likes']
-                    save_data(df)
-                    st.rerun()
-                n_col.write(f"**{row['name']}**")
-
-                # --- חלונית ניהול ופרטים ---
-                with st.expander("🔍 פרטים, תגובות וזום"):
-                    # עריכה בסיסית
-                    en = st.text_input("שם:", value=str(row["name"]), key=f"en_{idx}")
-                    ep = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{idx}")
+        if view_mode == "גלריה":
+            cols = st.columns(grid_size)
+            for idx, row in df.iterrows():
+                with cols[idx % grid_size]:
+                    img_list = str(row["images"]).split("|")
                     
-                    # תגובות
-                    comment = st.text_area("הערות / תגובות:", value=str(row["comments"]), key=f"com_{idx}")
+                    # --- קרוסלת Swipe ---
+                    carousel_html = '<div class="scroll-container">'
+                    for img_p in img_list:
+                        if os.path.exists(img_p):
+                            base64_img = get_image_base64(img_p)
+                            carousel_html += f'<div class="scroll-item"><img src="data:image/jpeg;base64,{base64_img}"></div>'
+                    carousel_html += '</div>'
+                    st.markdown(carousel_html, unsafe_allow_html=True)
                     
-                    if st.button("💾 שמור שינויים ותגובה", key=f"sv_{idx}"):
-                        df.at[idx, "name"], df.at[idx, "price"], df.at[idx, "comments"] = en, ep, comment
-                        save_data(df)
-                        st.toast("עודכן!")
+                    st.write(f"**{row['name']}**")
 
-                    st.divider()
-                    st.write("🖼️ צפייה בזום (לחץ להגדלה):")
-                    # כאן המשתמש יכול ללחוץ על תמונה ו-Streamlit יפתח אותה למסך מלא עם זום
-                    for p in img_list:
-                        if os.path.exists(p):
-                            st.image(p, use_container_width=True)
-
-                    st.divider()
-                    # הוספת תמונות חדשות למטבע קיים
-                    more_f = st.file_uploader("➕ הוסף תמונות למטבע זה:", accept_multiple_files=True, key=f"mf_{idx}")
-                    if st.button("✅ הוסף תמונות", key=f"am_{idx}"):
-                        if more_f:
-                            new_paths = img_list
-                            for f in more_f:
-                                sq = process_image(f)
-                                np = os.path.join(IMG_DIR, f"ex_{int(time.time())}_{f.name}")
-                                sq.save(np)
-                                new_paths.append(np)
-                            df.at[idx, "images"] = "|".join(new_paths)
+                    # --- חלונית ניהול ופרטים ---
+                    with st.expander("🔍 פרטים וניהול"):
+                        # עריכת פרטים
+                        en = st.text_input("שם:", value=str(row["name"]), key=f"en_{idx}")
+                        ep = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{idx}")
+                        
+                        # תגובות/הערות
+                        comment = st.text_area("תגובה/הערה על המטבע:", value=str(row["comments"]), key=f"com_{idx}")
+                        
+                        if st.button("💾 שמור שינויים", key=f"sv_{idx}"):
+                            df.at[idx, "name"], df.at[idx, "price"], df.at[idx, "comments"] = en, ep, comment
                             save_data(df)
                             st.rerun()
 
-                    if st.button("❌ מחק הכל", key=f"del_{idx}", use_container_width=True):
-                        df.drop(idx).to_csv(DB_FILE, index=False)
-                        st.rerun()
+                        st.divider()
+                        st.write("ניהול תמונות:")
+                        keep = []
+                        for i, p in enumerate(img_list):
+                            if os.path.exists(p):
+                                c1, c2 = st.columns([4, 1])
+                                c1.image(p, use_container_width=True)
+                                if not c2.button("🗑️", key=f"di_{idx}_{i}"):
+                                    keep.append(p)
+                        
+                        # הוספת תמונות למטבע קיים
+                        more_f = st.file_uploader("➕ הוסף תמונות:", accept_multiple_files=True, key=f"mf_{idx}")
+                        if st.button("✅ הוסף", key=f"am_{idx}"):
+                            if more_f:
+                                new_paths = keep
+                                for f in more_f:
+                                    sq = process_image(f)
+                                    np = os.path.join(IMG_DIR, f"ex_{int(time.time())}_{f.name}")
+                                    sq.save(np)
+                                    new_paths.append(np)
+                                df.at[idx, "images"] = "|".join(new_paths)
+                                save_data(df)
+                                st.rerun()
+
+                        if len(keep) != len(img_list):
+                            df.at[idx, "images"] = "|".join(keep)
+                            save_data(df)
+                            st.rerun()
+
+                        st.divider()
+                        if st.button("❌ מחק את כל הפריט", key=f"del_{idx}", use_container_width=True):
+                            df.drop(idx).to_csv(DB_FILE, index=False)
+                            st.rerun()
+        else:
+            # תצוגת רשימה פשוטה
+            for idx, row in df.iterrows():
+                with st.container(border=True):
+                    c1, c2 = st.columns([1, 4])
+                    img_list = str(row["images"]).split("|")
+                    c1.image(img_list[0], width=80)
+                    c2.write(f"**{row['name']}** | {row['price']} ₪")
+                    c2.write(f"_{row['comments']}_" if pd.notna(row['comments']) else "")
