@@ -12,15 +12,12 @@ st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
 
 # הגדרת Cloudinary מה-Secrets
 try:
-    if "CLOUDINARY_CLOUD_NAME" in st.secrets:
-        cloudinary.config(
-            cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
-            api_key = st.secrets["CLOUDINARY_API_KEY"],
-            api_secret = st.secrets["CLOUDINARY_API_SECRET"]
-        )
-        READY = True
-    else:
-        READY = False
+    cloudinary.config(
+        cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
+        api_key = st.secrets["CLOUDINARY_API_KEY"],
+        api_secret = st.secrets["CLOUDINARY_API_SECRET"]
+    )
+    READY = True
 except:
     READY = False
 
@@ -46,14 +43,17 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-# ניהול נתונים - CSV
+# ניהול נתונים - טעינה ושמירה חסינה
 DB_FILE = 'catalog_data.csv'
+
 def load_data():
     if os.path.exists(DB_FILE):
         try:
-            return pd.read_csv(DB_FILE)
+            df = pd.read_csv(DB_FILE)
+            df['id'] = df['id'].astype(str) # תמיד לעבוד עם טקסט ב-ID
+            return df
         except:
-            return pd.DataFrame(columns=["id", "name", "price", "images", "comments"])
+            pass
     return pd.DataFrame(columns=["id", "name", "price", "images", "comments"])
 
 def save_data(df):
@@ -61,7 +61,7 @@ def save_data(df):
 
 # --- ממשק משתמש ---
 if not READY:
-    st.error("⚠️ הגדרות Cloudinary חסרות ב-Secrets של Streamlit.")
+    st.error("⚠️ הגדרות Cloudinary חסרות ב-Secrets.")
     st.stop()
 
 st.sidebar.title("🖼️ תצוגה")
@@ -72,27 +72,21 @@ tab1, tab2 = st.tabs(["💎 הגלריה שלי", "➕ הוספת מטבע"])
 # --- טאב הוספה ---
 with tab2:
     st.header("הוספת מטבע חדש")
-    with st.form("add_coin_form", clear_on_submit=True):
-        new_name = st.text_input("שם המטבע:")
-        new_price = st.text_input("מחיר (₪):")
-        new_files = st.file_uploader("בחר תמונות מהגלריה:", accept_multiple_files=True)
-        submit_button = st.form_submit_button("🚀 שמור לקטלוג")
-
-        if submit_button:
-            if new_name and new_files:
-                with st.spinner('מעלה תמונות...'):
-                    urls = [upload_to_cloud(f) for f in new_files]
+    with st.form("add_form", clear_on_submit=True):
+        n_name = st.text_input("שם המטבע:")
+        n_price = st.text_input("מחיר (₪):")
+        n_files = st.file_uploader("בחר תמונות:", accept_multiple_files=True)
+        if st.form_submit_button("🚀 שמור לקטלוג"):
+            if n_name and n_files:
+                with st.spinner('מעלה...'):
+                    urls = [upload_to_cloud(f) for f in n_files]
                     df = load_data()
-                    # יצירת ID ייחודי כמספר
-                    new_id = int(time.time())
-                    new_row = {"id": new_id, "name": new_name, "price": new_price, "images": "|".join(urls), "comments": ""}
-                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                    save_data(df)
-                    st.success("נוסף בהצלחה!")
+                    new_id = str(int(time.time()))
+                    new_row = pd.DataFrame([{"id": new_id, "name": n_name, "price": n_price, "images": "|".join(urls), "comments": ""}])
+                    save_data(pd.concat([df, new_row], ignore_index=True))
+                    st.success("נוסף!")
                     time.sleep(1)
                     st.rerun()
-            else:
-                st.error("נא להזין שם ולבחור תמונה.")
 
 # --- טאב גלריה ---
 with tab1:
@@ -101,13 +95,12 @@ with tab1:
         st.info("הקטלוג ריק.")
     else:
         cols = st.columns(grid_size)
-        # לופ על הטבלה
         for index, row in df.iterrows():
+            coin_id = str(row['id'])
             with cols[index % grid_size]:
                 img_list = str(row["images"]).split("|")
-                coin_id = row["id"]
                 
-                # קרוסלה
+                # קרוסלת Swipe
                 carousel_html = '<div class="scroll-container">'
                 for url in img_list:
                     carousel_html += f'<div class="scroll-item"><img src="{url}"></div>'
@@ -117,54 +110,12 @@ with tab1:
                 st.write(f"**{row['name']}**")
 
                 with st.expander("🔍 ניהול ופרטים"):
-                    # עריכה - משתמשים ב-Session State כדי למנוע ריענון לא רצוי
-                    edit_name = st.text_input("שם:", value=str(row["name"]), key=f"n_{index}")
-                    edit_price = st.text_input("מחיר:", value=str(row["price"]), key=f"p_{index}")
-                    edit_comm = st.text_area("תגובה:", value=str(row["comments"]) if pd.notna(row["comments"]) else "", key=f"c_{index}")
+                    # שדות עריכה
+                    e_name = st.text_input("שם:", value=str(row["name"]), key=f"en_{coin_id}")
+                    e_price = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{coin_id}")
+                    e_comm = st.text_area("תגובה:", value=str(row["comments"]) if pd.notna(row["comments"]) else "", key=f"ec_{coin_id}")
                     
-                    if st.button("💾 שמור שינויים", key=f"save_{index}"):
-                        # תיקון השגיאה: עדכון ישיר לפי האינדקס של השורה
-                        df.at[index, "name"] = edit_name
-                        df.at[index, "price"] = edit_price
-                        df.at[index, "comments"] = edit_comm
-                        save_data(df)
-                        st.success("עודכן!")
-                        st.rerun()
-                    
-                    st.divider()
-                    st.write("➕ הוספת תמונות:")
-                    add_files = st.file_uploader("בחר תמונות נוספות:", accept_multiple_files=True, key=f"up_{index}")
-                    if st.button("✅ הוסף תמונות", key=f"btn_up_{index}"):
-                        if add_files:
-                            with st.spinner('מעלה...'):
-                                new_urls = [upload_to_cloud(nf) for nf in add_files]
-                                df.at[index, "images"] = str(row["images"]) + "|" + "|".join(new_urls)
-                                save_data(df)
-                                st.rerun()
-
-                    st.divider()
-                    st.write("מחיקת תמונות:")
-                    current_images = str(row["images"]).split("|")
-                    keep_list = []
-                    was_deleted = False
-                    
-                    for i, url in enumerate(current_images):
-                        c1, c2 = st.columns([4, 1])
-                        c1.image(url, width=60)
-                        if c2.button("🗑️", key=f"delimg_{index}_{i}"):
-                            was_deleted = True
-                        else:
-                            keep_list.append(url)
-                    
-                    if was_deleted:
-                        if len(keep_list) > 0:
-                            df.at[index, "images"] = "|".join(keep_list)
-                            save_data(df)
-                            st.rerun()
-                        else:
-                            st.error("חייבת להישאר לפחות תמונה אחת.")
-
-                    if st.button("❌ מחק את כל המטבע", key=f"full_{index}", use_container_width=True):
-                        df = df.drop(index)
-                        save_data(df)
-                        st.rerun()
+                    if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
+                        # עדכון חסין: טוענים את כל הקובץ, מעדכנים ושומרים
+                        fresh_df = load_data()
+                        fresh_df.loc[fresh_df['id'
