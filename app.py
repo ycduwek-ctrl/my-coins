@@ -1,15 +1,21 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+try:
+    from streamlit_gsheets import GSheetsConnection
+    HAS_GSHEETS = True
+except ImportError:
+    HAS_GSHEETS = False
+
 import os
 from PIL import Image
 import time
 import base64
 import io
 
-# --- הגדרות עיצוב ---
+# --- הגדרות דף ---
 st.set_page_config(page_title="Coin Catalog Pro", layout="wide")
 
+# עיצוב גלילה (Swipe)
 st.markdown("""
 <style>
     .scroll-container { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 5px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
@@ -19,14 +25,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# חיבור לגוגל שיטס
-conn = st.connection("gsheets", type=GSheetsConnection)
+# פונקציות טעינה ושמירה
+DB_FILE = 'catalog_data.csv'
 
 def load_data():
-    return conn.read(worksheet="coins", ttl="0s")
+    if HAS_GSHEETS:
+        try:
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            # אם שם הגיליון בגוגל הוא לא 'coins', שנה כאן ל-'Sheet1'
+            return conn.read(worksheet="coins", ttl="0s")
+        except:
+            pass
+    
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["id", "name", "price", "images", "comments"])
 
 def save_data(df):
-    conn.update(worksheet="coins", data=df)
+    df.to_csv(DB_FILE, index=False)
+    if HAS_GSHEETS:
+        try:
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            conn.update(worksheet="coins", data=df)
+            st.toast("המידע נשמר גם בגוגל שיטס!")
+        except:
+            st.warning("המידע נשמר מקומית בלבד (בעיה בחיבור לגוגל)")
 
 def get_image_base64(path):
     if os.path.exists(path):
@@ -43,18 +66,21 @@ grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 3)
 
 tab1, tab2 = st.tabs(["💎 הקטלוג", "➕ הוספה"])
 
-# --- טאב הוספה ---
 with tab2:
     st.header("הוספת מטבע")
-    c_name = st.text_input("שם:")
+    c_name = st.text_input("שם המטבע:")
     c_price = st.text_input("מחיר:")
-    up_files = st.file_uploader("בחר תמונות:", accept_multiple_files=True)
+    up_files = st.file_uploader("בחר תמונות מהגלריה:", accept_multiple_files=True)
     
-    if st.button("💾 שמור"):
+    if st.button("💾 שמור הכל"):
         if c_name and up_files:
             paths = []
             for f in up_files:
                 img = Image.open(f).convert('RGB')
+                # חיתוך לריבוע
+                w, h = img.size
+                s = min(w, h)
+                img = img.crop(((w-s)/2, (h-s)/2, (w+s)/2, (h+s)/2))
                 p = os.path.join(IMG_DIR, f"c_{int(time.time()*1000)}_{f.name}")
                 img.save(p)
                 paths.append(p)
@@ -63,13 +89,12 @@ with tab2:
             new_row = pd.DataFrame([{"id": len(df)+1, "name": c_name, "price": c_price, "images": "|".join(paths), "comments": ""}])
             df = pd.concat([df, new_row], ignore_index=True)
             save_data(df)
-            st.success("נשמר בגוגל שיטס!")
+            st.success("נשמר!")
             st.rerun()
 
-# --- טאב גלריה ---
 with tab1:
     df = load_data()
-    if df.empty:
+    if df is None or df.empty:
         st.info("הקטלוג ריק.")
     else:
         cols = st.columns(grid_size)
@@ -88,8 +113,7 @@ with tab1:
                 
                 st.write(f"**{row['name']}**")
 
-                with st.expander("🔍 ניהול ופרטים"):
-                    # עריכה
+                with st.expander("🔍 פרטים וניהול"):
                     en = st.text_input("שם:", value=str(row["name"]), key=f"n_{idx}")
                     ep = st.text_input("מחיר:", value=str(row["price"]), key=f"p_{idx}")
                     ec = st.text_area("תגובה:", value=str(row["comments"]) if pd.notna(row["comments"]) else "", key=f"c_{idx}")
@@ -99,10 +123,16 @@ with tab1:
                         df.at[idx, "price"] = ep
                         df.at[idx, "comments"] = ec
                         save_data(df)
-                        st.success("עודכן בגוגל!")
                         st.rerun()
                     
-                    if st.button("🗑️ מחק הכל", key=f"d_{idx}"):
+                    if st.button("🗑️ מחק פריט", key=f"d_{idx}"):
                         df = df.drop(idx)
                         save_data(df)
                         st.rerun()
+
+# כפתור גיבוי ידני
+st.sidebar.divider()
+if st.sidebar.button("📥 הורד גיבוי (CSV)"):
+    df = load_data()
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.sidebar.download_button("לחץ להורדה", csv, "coins_backup.csv", "text/csv")
