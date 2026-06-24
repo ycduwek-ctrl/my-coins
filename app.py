@@ -24,7 +24,7 @@ try:
 except:
     READY = False
 
-# עיצוב CSS - גלריה, חצים וכפתור פלוס
+# עיצוב CSS - קרוסלה, חצים וכרטיס הוספה בסוף
 st.markdown("""
 <style>
     .carousel-wrapper {
@@ -68,7 +68,7 @@ st.markdown("""
     .prev-arrow { left: 0; }
     .next-arrow { right: 0; }
 
-    /* עיצוב כפתור הפלוס בגלריה */
+    /* עיצוב כרטיס הוספה (פלוס) בסוף הגלריה */
     .stPopover { width: 100%; }
     .stPopover > button {
         width: 100% !important;
@@ -76,14 +76,20 @@ st.markdown("""
         border-radius: 12px !important;
         border: 2px dashed #ddd !important;
         background-color: #fafafa !important;
-        font-size: 40px !important;
-        color: #999 !important;
+        font-size: 50px !important;
+        color: #bbb !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
         transition: 0.3s;
+        margin-bottom: 10px;
     }
     .stPopover > button:hover {
         border-color: #4CAF50 !important;
         color: #4CAF50 !important;
+        background-color: #f0fdf0 !important;
     }
+    
     .stExpander { border: 1px solid #eee !important; border-radius: 10px !important; margin-top: 5px; }
 </style>
 """, unsafe_allow_html=True)
@@ -99,7 +105,6 @@ def upload_to_cloud(file):
     return res['secure_url']
 
 DB_FILE = 'final_coins_db.csv'
-
 def load_data():
     if os.path.exists(DB_FILE):
         try:
@@ -125,45 +130,18 @@ grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 
 st.sidebar.divider()
 if not df.empty:
-    try:
-        csv_data = df.to_csv(index=False).encode('utf-8-sig')
-        st.sidebar.download_button(
-            label="📥 הורד גיבוי (CSV)",
-            data=csv_data,
-            file_name="coins_backup.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    except:
-        st.sidebar.write("לא ניתן לייצר גיבוי כרגע")
+    csv_data = df.to_csv(index=False).encode('utf-8-sig')
+    st.sidebar.download_button("📥 הורד גיבוי (CSV)", csv_data, "coins_backup.csv", "text/csv", use_container_width=True)
 
-tab1, tab2 = st.tabs(["💎 הגלריה שלי", "➕ ניהול מלא"])
+tab1, tab2 = st.tabs(["💎 הגלריה שלי", "➕ ניהול כללי"])
 
-# --- טאב גלריה (כולל הוספה מהירה) ---
 with tab1:
     if view_mode == "גלריה":
         cols = st.columns(grid_size)
         
-        # כרטיס הוספה ראשון
-        with cols[0]:
-            with st.popover("➕"):
-                st.subheader("הוספה מהירה")
-                q_name = st.text_input("שם המטבע:", key="q_n")
-                q_price = st.text_input("מחיר:", key="q_p")
-                q_files = st.file_uploader("בחר תמונות:", accept_multiple_files=True, key="q_f")
-                if st.button("🚀 שמור", key="q_s"):
-                    if q_name and q_files:
-                        with st.spinner('מעלה...'):
-                            urls = [upload_to_cloud(f) for f in q_files]
-                            new_id = str(int(time.time()))
-                            new_row = pd.DataFrame([{"id": new_id, "name": q_name, "price": q_price, "images": "|".join(urls), "comments": ""}])
-                            save_data(pd.concat([df, new_row], ignore_index=True))
-                            st.rerun()
-            st.write("**הוסף חדש**")
-
-        # הצגת המטבעות
+        # 1. הצגת המטבעות הקיימים קודם
         for index, row in df.iterrows():
-            col_idx = (index + 1) % grid_size
+            col_idx = index % grid_size
             coin_id = str(row['id'])
             with cols[col_idx]:
                 img_list = str(row["images"]).split("|")
@@ -186,13 +164,9 @@ with tab1:
                     
                     if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
                         full_df = load_data()
-                        idx_list = full_df[full_df['id'] == coin_id].index
-                        if not idx_list.empty:
-                            full_df.at[idx_list[0], 'name'] = str(e_name)
-                            full_df.at[idx_list[0], 'price'] = str(e_price)
-                            full_df.at[idx_list[0], 'comments'] = str(e_comm)
-                            save_data(full_df)
-                            st.rerun()
+                        full_df.loc[full_df['id'] == coin_id, ["name", "price", "comments"]] = [e_name, e_price, e_comm]
+                        save_data(full_df)
+                        st.rerun()
                     
                     st.divider()
                     add_f = st.file_uploader("➕ הוסף תמונות:", accept_multiple_files=True, key=f"af_{coin_id}")
@@ -202,8 +176,7 @@ with tab1:
                                 new_urls = [upload_to_cloud(nf) for nf in add_f]
                                 full_df = load_data()
                                 idx = full_df[full_df['id'] == coin_id].index[0]
-                                old_imgs = full_df.at[idx, 'images']
-                                full_df.at[idx, 'images'] = f"{old_imgs}|{'|'.join(new_urls)}"
+                                full_df.at[idx, 'images'] = f"{full_df.at[idx, 'images']}|{'|'.join(new_urls)}"
                                 save_data(full_df)
                                 st.rerun()
 
@@ -212,7 +185,25 @@ with tab1:
                         full_df = full_df[full_df['id'] != coin_id]
                         save_data(full_df)
                         st.rerun()
-    
+
+        # 2. כרטיס ה-"➕" בסוף הרשימה
+        last_col_idx = len(df) % grid_size
+        with cols[last_col_idx]:
+            with st.popover("➕"):
+                st.subheader("הוספת מטבע חדש")
+                q_name = st.text_input("שם המטבע:", key="q_n")
+                q_price = st.text_input("מחיר:", key="q_p")
+                q_files = st.file_uploader("בחר תמונות מהגלריה:", accept_multiple_files=True, key="q_f")
+                if st.button("🚀 שמור לקטלוג", key="q_s", use_container_width=True):
+                    if q_name and q_files:
+                        with st.spinner('מעלה...'):
+                            urls = [upload_to_cloud(f) for f in q_files]
+                            new_id = str(int(time.time()))
+                            new_row = pd.DataFrame([{"id": new_id, "name": q_name, "price": q_price, "images": "|".join(urls), "comments": ""}])
+                            save_data(pd.concat([df, new_row], ignore_index=True))
+                            st.rerun()
+            st.write("**הוסף מטבע חדש**")
+
     else: # רשימה מפורטת
         total_sum = pd.to_numeric(df['price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').sum()
         st.subheader(f"💰 שווי כולל: {total_sum:,.0f} ₪")
@@ -223,19 +214,16 @@ with tab1:
                 c1.image(img_url, use_container_width=True)
                 c2.write(f"### {row['name']}\n**מחיר:** {row['price']} ₪")
 
-# --- טאב 2: הוספה מלאה (גיבוי) ---
+# טאב ניהול כללי נשאר כגיבוי
 with tab2:
-    st.header("ממשק הוספה מלא")
-    with st.form("main_add_form", clear_on_submit=True):
-        n_name = st.text_input("שם:")
-        n_price = st.text_input("מחיר:")
-        n_files = st.file_uploader("בחר תמונות:", accept_multiple_files=True)
+    st.header("הוספה דרך ממשק מלא")
+    with st.form("main_add", clear_on_submit=True):
+        n_n = st.text_input("שם:")
+        n_p = st.text_input("מחיר:")
+        n_f = st.file_uploader("תמונות:", accept_multiple_files=True)
         if st.form_submit_button("🚀 שמור"):
-            if n_name and n_files:
-                with st.spinner('מעלה...'):
-                    urls = [upload_to_cloud(f) for f in n_files]
-                    new_id = str(int(time.time()))
-                    new_row = pd.DataFrame([{"id": new_id, "name": n_name, "price": n_price, "images": "|".join(urls), "comments": ""}])
-                    save_data(pd.concat([df, new_row], ignore_index=True))
-                    st.success("נוסף!")
-                    st.rerun()
+            if n_n and n_f:
+                urls = [upload_to_cloud(f) for f in n_f]
+                new_row = pd.DataFrame([{"id": str(int(time.time())), "name": n_n, "price": n_p, "images": "|".join(urls), "comments": ""}])
+                save_data(pd.concat([df, new_row], ignore_index=True))
+                st.rerun()
