@@ -21,7 +21,7 @@ try:
 except:
     READY = False
 
-# עיצוב חזק לקרוסלה עם חצים פעילים
+# עיצוב הקרוסלה עם חצים פעילים בשיטה החדשה
 st.markdown("""
 <style>
     .carousel-wrapper {
@@ -30,8 +30,6 @@ st.markdown("""
         aspect-ratio: 1 / 1;
         overflow: hidden;
         border-radius: 12px;
-        background-color: #f0f0f0;
-        direction: ltr; /* נטרול בעיות כיווניות בגלילה */
     }
 
     .scroll-container {
@@ -41,7 +39,6 @@ st.markdown("""
         scroll-behavior: smooth;
         gap: 0px;
         scrollbar-width: none;
-        -ms-overflow-style: none;
         width: 100%;
         height: 100%;
     }
@@ -52,8 +49,6 @@ st.markdown("""
         flex: 0 0 100%;
         scroll-snap-align: center;
         aspect-ratio: 1 / 1;
-        width: 100%;
-        height: 100%;
     }
     
     .scroll-item img {
@@ -62,29 +57,29 @@ st.markdown("""
         object-fit: cover;
     }
 
+    /* חצים על התמונה */
     .nav-arrow {
         position: absolute;
         top: 0;
         bottom: 0;
-        width: 40px;
-        background: rgba(0, 0, 0, 0.15);
+        width: 45px;
+        background: rgba(0, 0, 0, 0.1);
         color: white;
         border: none;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 30px;
+        font-size: 35px;
         cursor: pointer;
-        z-index: 99;
+        z-index: 5;
         transition: background 0.3s;
     }
     
-    .nav-arrow:hover { background: rgba(0, 0, 0, 0.5); }
+    .nav-arrow:hover { background: rgba(0, 0, 0, 0.4); }
     .prev-arrow { left: 0; }
     .next-arrow { right: 0; }
 
     .stExpander { border: 1px solid #eee !important; border-radius: 10px !important; margin-top: 5px; }
-    div[data-testid="column"] { direction: rtl; } /* החזרת הטקסט לימין */
 </style>
 """, unsafe_allow_html=True)
 
@@ -141,8 +136,6 @@ with tab2:
                     new_row = pd.DataFrame([{"id": new_id, "name": str(n_name), "price": str(n_price), "images": "|".join(urls), "comments": ""}])
                     df = pd.concat([df, new_row], ignore_index=True)
                     save_data(df)
-                    st.success("נוסף!")
-                    time.sleep(0.5)
                     st.rerun()
 
 with tab1:
@@ -158,14 +151,14 @@ with tab1:
                     
                     images_html = "".join([f'<div class="scroll-item"><img src="{url}"></div>' for url in img_list])
                     
-                    # קוד הקרוסלה עם JavaScript משופר
+                    # פתרון החצים החדש - פקודת JavaScript פשוטה שתמיד עובדת
                     carousel_html = f"""
                     <div class="carousel-wrapper">
-                        <button class="nav-arrow prev-arrow" onclick="document.getElementById('sc_{coin_id}').scrollLeft -= document.getElementById('sc_{coin_id}').offsetWidth">‹</button>
-                        <div class="scroll-container" id="sc_{coin_id}">
+                        <button class="nav-arrow prev-arrow" onclick="this.nextElementSibling.scrollBy({{left: -this.nextElementSibling.offsetWidth, behavior: 'smooth'}})">‹</button>
+                        <div class="scroll-container">
                             {images_html}
                         </div>
-                        <button class="nav-arrow next-arrow" onclick="document.getElementById('sc_{coin_id}').scrollLeft += document.getElementById('sc_{coin_id}').offsetWidth">›</button>
+                        <button class="nav-arrow next-arrow" onclick="this.previousElementSibling.scrollBy({{left: this.previousElementSibling.offsetWidth, behavior: 'smooth'}})">›</button>
                     </div>
                     """
                     st.markdown(carousel_html, unsafe_allow_html=True)
@@ -202,11 +195,12 @@ with tab1:
                             save_data(full_df)
                             st.rerun()
         
-        else: # תצוגת רשימה מפורטת
+        else: # תצוגת רשימה
             total_sum = pd.to_numeric(df['price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').sum()
             st.subheader(f"💰 שווי כולל: {total_sum:,.0f} ₪")
             for index, row in df.iterrows():
                 with st.container(border=True):
                     c1, c2 = st.columns([1, 4])
-                    c1.image(str(row["images"]).split("|")[0], use_container_width=True)
+                    img_url = str(row["images"]).split("|")[0]
+                    c1.image(img_url, use_container_width=True)
                     c2.write(f"### {row['name']}\n**מחיר:** {row['price']} ₪")
