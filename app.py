@@ -21,7 +21,7 @@ try:
 except:
     READY = False
 
-# עיצוב Swipe 1:1 מהיר (בלי Base64 כדי למנוע מסך לבן)
+# עיצוב Swipe 1:1 מהיר
 st.markdown("""
 <style>
     .scroll-container { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 5px; scrollbar-width: none; }
@@ -32,7 +32,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# פונקציה להעלאת תמונה
 def upload_to_cloud(file):
     img = Image.open(file).convert('RGB')
     w, h = img.size
@@ -43,15 +42,21 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-# ניהול נתונים - שימוש בשם קובץ חדש לדף חלק
-DB_FILE = 'coins_db.csv'
+# ניהול נתונים - שם קובץ חדש למניעת שגיאות סוג נתונים
+DB_FILE = 'final_coins_db.csv'
 
 def load_data():
     if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        df['id'] = df['id'].astype(str)
-        return df
+        try:
+            # טעינה כשכל העמודות הן טקסט (object) כדי למנוע TypeErrors
+            df = pd.read_csv(DB_FILE, dtype=str)
+            return df
+        except:
+            pass
     return pd.DataFrame(columns=["id", "name", "price", "images", "comments"])
+
+def save_data(df):
+    df.to_csv(DB_FILE, index=False)
 
 # --- ממשק משתמש ---
 if not READY:
@@ -59,6 +64,7 @@ if not READY:
     st.stop()
 
 st.sidebar.title("🖼️ תצוגה")
+view_mode = st.sidebar.radio("סגנון:", ["גלריה", "רשימה"])
 grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 
 tab1, tab2 = st.tabs(["💎 הגלריה", "➕ הוספה"])
@@ -76,9 +82,10 @@ with tab2:
                     urls = [upload_to_cloud(f) for f in n_files]
                     df = load_data()
                     new_id = str(int(time.time()))
-                    new_row = pd.DataFrame([{"id": new_id, "name": n_name, "price": n_price, "images": "|".join(urls), "comments": ""}])
-                    pd.concat([df, new_row], ignore_index=True).to_csv(DB_FILE, index=False)
-                    st.success("נוסף!")
+                    new_row = pd.DataFrame([{"id": new_id, "name": str(n_name), "price": str(n_price), "images": "|".join(urls), "comments": ""}])
+                    save_data(pd.concat([df, new_row], ignore_index=True))
+                    st.success("נוסף בהצלחה!")
+                    time.sleep(1)
                     st.rerun()
 
 # --- טאב גלריה ---
@@ -87,51 +94,59 @@ with tab1:
     if df.empty:
         st.info("הקטלוג ריק.")
     else:
-        cols = st.columns(grid_size)
-        for index, row in df.iterrows():
-            coin_id = str(row['id'])
-            with cols[index % grid_size]:
-                img_list = str(row["images"]).split("|")
-                
-                # קרוסלה מהירה
-                carousel_html = '<div class="scroll-container">'
-                for url in img_list:
-                    carousel_html += f'<div class="scroll-item"><img src="{url}"></div>'
-                carousel_html += '</div>'
-                st.markdown(carousel_html, unsafe_allow_html=True)
-                
-                st.write(f"**{row['name']}**")
+        if view_mode == "גלריה":
+            cols = st.columns(grid_size)
+            for index, row in df.iterrows():
+                coin_id = str(row['id'])
+                with cols[index % grid_size]:
+                    img_list = str(row["images"]).split("|")
+                    
+                    carousel_html = '<div class="scroll-container">'
+                    for url in img_list:
+                        carousel_html += f'<div class="scroll-item"><img src="{url}"></div>'
+                    carousel_html += '</div>'
+                    st.markdown(carousel_html, unsafe_allow_html=True)
+                    
+                    st.write(f"**{row['name']}**")
 
-                with st.expander("🔍 ניהול ופרטים"):
-                    # עריכה בראש החלונית
-                    e_name = st.text_input("שם:", value=str(row["name"]), key=f"en_{coin_id}")
-                    e_price = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{coin_id}")
-                    e_comm = st.text_area("תגובה:", value=str(row["comments"]) if pd.notna(row["comments"]) else "", key=f"ec_{coin_id}")
-                    
-                    if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
-                        full_df = load_data()
-                        full_df.loc[full_df['id'] == coin_id, ["name", "price", "comments"]] = [e_name, e_price, e_comm]
-                        full_df.to_csv(DB_FILE, index=False)
-                        st.success("עודכן!")
-                        st.rerun()
-                    
-                    st.divider()
-                    # הוספת תמונות למטבע קיים
-                    add_f = st.file_uploader("➕ הוסף תמונות:", accept_multiple_files=True, key=f"af_{coin_id}")
-                    if st.button("✅ הוסף", key=f"ab_{coin_id}"):
-                        if add_f:
-                            with st.spinner('מעלה...'):
-                                new_urls = [upload_to_cloud(nf) for nf in add_f]
-                                full_df = load_data()
-                                old_imgs = full_df.loc[full_df['id'] == coin_id, "images"].values[0]
-                                full_df.loc[full_df['id'] == coin_id, "images"] = f"{old_imgs}|{'|'.join(new_urls)}"
-                                full_df.to_csv(DB_FILE, index=False)
+                    with st.expander("🔍 ניהול ופרטים"):
+                        # עריכה בשדות נפרדים
+                        e_name = st.text_input("שם:", value=str(row["name"]), key=f"en_{coin_id}")
+                        e_price = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{coin_id}")
+                        e_comm = st.text_area("תגובה:", value=str(row["comments"]) if pd.notna(row["comments"]) else "", key=f"ec_{coin_id}")
+                        
+                        if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
+                            # עדכון שדה-שדה בצורה בטוחה
+                            full_df = load_data()
+                            idx_to_update = full_df[full_df['id'] == coin_id].index
+                            if not idx_to_update.empty:
+                                full_df.at[idx_to_update[0], 'name'] = str(e_name)
+                                full_df.at[idx_to_update[0], 'price'] = str(e_price)
+                                full_df.at[idx_to_update[0], 'comments'] = str(e_comm)
+                                save_data(full_df)
+                                st.success("עודכן!")
                                 st.rerun()
+                        
+                        st.divider()
+                        # הוספת תמונות
+                        add_f = st.file_uploader("➕ הוסף תמונות:", accept_multiple_files=True, key=f"af_{coin_id}")
+                        if st.button("✅ הוסף", key=f"ab_{coin_id}"):
+                            if add_f:
+                                with st.spinner('מעלה...'):
+                                    new_urls = [upload_to_cloud(nf) for nf in add_f]
+                                    full_df = load_data()
+                                    idx = full_df[full_df['id'] == coin_id].index[0]
+                                    old_imgs = full_df.at[idx, 'images']
+                                    full_df.at[idx, 'images'] = f"{old_imgs}|{'|'.join(new_urls)}"
+                                    save_data(full_df)
+                                    st.rerun()
 
-                    st.divider()
-                    # מחיקה פשוטה
-                    if st.button("🗑️ מחק את כל המטבע", key=f"del_{coin_id}", use_container_width=True):
-                        full_df = load_data()
-                        full_df = full_df[full_df['id'] != coin_id]
-                        full_df.to_csv(DB_FILE, index=False)
-                        st.rerun()
+                        st.divider()
+                        if st.button("🗑️ מחק פריט", key=f"del_{coin_id}", use_container_width=True):
+                            full_df = load_data()
+                            full_df = full_df[full_df['id'] != coin_id]
+                            save_data(full_df)
+                            st.rerun()
+        else:
+            for index, row in df.iterrows():
+                st.write(f"**{row['name']}** | {row['price']} ₪")
