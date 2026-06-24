@@ -21,7 +21,7 @@ try:
 except:
     READY = False
 
-# עיצוב מתקדם לקרוסלה עם חצים פעילים
+# עיצוב חזק לקרוסלה עם חצים פעילים
 st.markdown("""
 <style>
     .carousel-wrapper {
@@ -31,6 +31,7 @@ st.markdown("""
         overflow: hidden;
         border-radius: 12px;
         background-color: #f0f0f0;
+        direction: ltr; /* נטרול בעיות כיווניות בגלילה */
     }
 
     .scroll-container {
@@ -41,6 +42,8 @@ st.markdown("""
         gap: 0px;
         scrollbar-width: none;
         -ms-overflow-style: none;
+        width: 100%;
+        height: 100%;
     }
     
     .scroll-container::-webkit-scrollbar { display: none; }
@@ -49,6 +52,8 @@ st.markdown("""
         flex: 0 0 100%;
         scroll-snap-align: center;
         aspect-ratio: 1 / 1;
+        width: 100%;
+        height: 100%;
     }
     
     .scroll-item img {
@@ -57,31 +62,29 @@ st.markdown("""
         object-fit: cover;
     }
 
-    /* עיצוב החצים הפעילים */
     .nav-arrow {
         position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        background: rgba(0, 0, 0, 0.3);
+        top: 0;
+        bottom: 0;
+        width: 40px;
+        background: rgba(0, 0, 0, 0.15);
         color: white;
         border: none;
-        width: 35px;
-        height: 50px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 24px;
+        font-size: 30px;
         cursor: pointer;
-        z-index: 10;
+        z-index: 99;
         transition: background 0.3s;
-        border-radius: 5px;
     }
     
-    .nav-arrow:hover { background: rgba(0, 0, 0, 0.6); }
-    .prev-arrow { left: 5px; }
-    .next-arrow { right: 5px; }
+    .nav-arrow:hover { background: rgba(0, 0, 0, 0.5); }
+    .prev-arrow { left: 0; }
+    .next-arrow { right: 0; }
 
     .stExpander { border: 1px solid #eee !important; border-radius: 10px !important; margin-top: 5px; }
+    div[data-testid="column"] { direction: rtl; } /* החזרת הטקסט לימין */
 </style>
 """, unsafe_allow_html=True)
 
@@ -108,7 +111,7 @@ def save_data(df):
 
 # --- ממשק משתמש ---
 if not READY:
-    st.error("⚠️ הגדרות Cloudinary חסרות.")
+    st.error("⚠️ חסרים פרטי Cloudinary.")
     st.stop()
 
 df = load_data()
@@ -139,6 +142,7 @@ with tab2:
                     df = pd.concat([df, new_row], ignore_index=True)
                     save_data(df)
                     st.success("נוסף!")
+                    time.sleep(0.5)
                     st.rerun()
 
 with tab1:
@@ -152,16 +156,16 @@ with tab1:
                 with cols[index % grid_size]:
                     img_list = str(row["images"]).split("|")
                     
-                    # בניית הקרוסלה עם JavaScript ששולט על הגלילה בלחיצה
                     images_html = "".join([f'<div class="scroll-item"><img src="{url}"></div>' for url in img_list])
                     
+                    # קוד הקרוסלה עם JavaScript משופר
                     carousel_html = f"""
                     <div class="carousel-wrapper">
-                        <button class="nav-arrow prev-arrow" onclick="document.getElementById('sc_{coin_id}').scrollBy({{left: -document.getElementById('sc_{coin_id}').offsetWidth, behavior: 'smooth'}})">‹</button>
+                        <button class="nav-arrow prev-arrow" onclick="document.getElementById('sc_{coin_id}').scrollLeft -= document.getElementById('sc_{coin_id}').offsetWidth">‹</button>
                         <div class="scroll-container" id="sc_{coin_id}">
                             {images_html}
                         </div>
-                        <button class="nav-arrow next-arrow" onclick="document.getElementById('sc_{coin_id}').scrollBy({{left: document.getElementById('sc_{coin_id}').offsetWidth, behavior: 'smooth'}})">›</button>
+                        <button class="nav-arrow next-arrow" onclick="document.getElementById('sc_{coin_id}').scrollLeft += document.getElementById('sc_{coin_id}').offsetWidth">›</button>
                     </div>
                     """
                     st.markdown(carousel_html, unsafe_allow_html=True)
@@ -174,9 +178,10 @@ with tab1:
                         e_comm = st.text_area("תגובה:", value=str(row["comments"]) if pd.notna(row["comments"]) else "", key=f"ec_{coin_id}")
                         
                         if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
-                            idx = df[df['id'] == coin_id].index[0]
-                            df.at[idx, 'name'], df.at[idx, 'price'], df.at[idx, 'comments'] = str(e_name), str(e_price), str(e_comm)
-                            save_data(df)
+                            full_df = load_data()
+                            idx = full_df[full_df['id'] == coin_id].index[0]
+                            full_df.at[idx, 'name'], full_df.at[idx, 'price'], full_df.at[idx, 'comments'] = str(e_name), str(e_price), str(e_comm)
+                            save_data(full_df)
                             st.rerun()
                         
                         st.divider()
@@ -185,18 +190,19 @@ with tab1:
                             if add_f:
                                 with st.spinner('מעלה...'):
                                     new_urls = [upload_to_cloud(nf) for nf in add_f]
-                                    idx = df[df['id'] == coin_id].index[0]
-                                    old_imgs = df.at[idx, 'images']
-                                    df.at[idx, 'images'] = f"{old_imgs}|{'|'.join(new_urls)}"
-                                    save_data(df)
+                                    full_df = load_data()
+                                    idx = full_df[full_df['id'] == coin_id].index[0]
+                                    full_df.at[idx, 'images'] = f"{full_df.at[idx, 'images']}|{'|'.join(new_urls)}"
+                                    save_data(full_df)
                                     st.rerun()
 
                         if st.button("🗑️ מחק פריט", key=f"del_{coin_id}", use_container_width=True):
-                            df = df[df['id'] != coin_id]
-                            save_data(df)
+                            full_df = load_data()
+                            full_df = full_df[full_df['id'] != coin_id]
+                            save_data(full_df)
                             st.rerun()
         
-        else: # תצוגת רשימה
+        else: # תצוגת רשימה מפורטת
             total_sum = pd.to_numeric(df['price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').sum()
             st.subheader(f"💰 שווי כולל: {total_sum:,.0f} ₪")
             for index, row in df.iterrows():
