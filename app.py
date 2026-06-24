@@ -21,26 +21,26 @@ try:
 except:
     READY = False
 
-# עיצוב Swipe + תמיכה במחשב (לחיצה וחצים ב-Hover)
+# עיצוב מתקדם לקרוסלה עם חצים פעילים
 st.markdown("""
 <style>
-    /* מיכל הקרוסלה */
     .carousel-wrapper {
         position: relative;
         width: 100%;
         aspect-ratio: 1 / 1;
         overflow: hidden;
         border-radius: 12px;
+        background-color: #f0f0f0;
     }
 
     .scroll-container {
         display: flex;
         overflow-x: auto;
         scroll-snap-type: x mandatory;
+        scroll-behavior: smooth;
         gap: 0px;
         scrollbar-width: none;
         -ms-overflow-style: none;
-        cursor: pointer;
     }
     
     .scroll-container::-webkit-scrollbar { display: none; }
@@ -57,31 +57,29 @@ st.markdown("""
         object-fit: cover;
     }
 
-    /* חצים עדינים שמופיעים רק במחשב (Hover) */
-    .carousel-wrapper::after, .carousel-wrapper::before {
-        content: '›';
+    /* עיצוב החצים הפעילים */
+    .nav-arrow {
         position: absolute;
         top: 50%;
         transform: translateY(-50%);
-        font-size: 40px;
+        background: rgba(0, 0, 0, 0.3);
         color: white;
-        background: rgba(0,0,0,0.2);
+        border: none;
         width: 35px;
-        height: 40px;
+        height: 50px;
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 24px;
+        cursor: pointer;
+        z-index: 10;
+        transition: background 0.3s;
         border-radius: 5px;
-        opacity: 0;
-        transition: opacity 0.3s;
-        pointer-events: none;
     }
-    .carousel-wrapper::before { content: '‹'; left: 10px; }
-    .carousel-wrapper::after { content: '›'; right: 10px; }
     
-    .carousel-wrapper:hover::after, .carousel-wrapper:hover::before {
-        opacity: 1;
-    }
+    .nav-arrow:hover { background: rgba(0, 0, 0, 0.6); }
+    .prev-arrow { left: 5px; }
+    .next-arrow { right: 5px; }
 
     .stExpander { border: 1px solid #eee !important; border-radius: 10px !important; margin-top: 5px; }
 </style>
@@ -97,9 +95,7 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-# ניהול נתונים
 DB_FILE = 'final_coins_db.csv'
-
 def load_data():
     if os.path.exists(DB_FILE):
         try:
@@ -117,7 +113,6 @@ if not READY:
 
 df = load_data()
 
-# --- תפריט צד ---
 st.sidebar.title("🖼️ תצוגה")
 view_mode = st.sidebar.radio("סגנון:", ["גלריה", "רשימה מפורטת"])
 grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
@@ -125,13 +120,12 @@ grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 st.sidebar.divider()
 if not df.empty:
     csv_data = df.to_csv(index=False).encode('utf-8-sig')
-    st.sidebar.download_button("📥 הורד גיבוי (CSV)", csv_data, f"coins_{int(time.time())}.csv", "text/csv")
+    st.sidebar.download_button("📥 הורד גיבוי (CSV)", csv_data, f"coins_backup.csv", "text/csv")
 
 tab1, tab2 = st.tabs(["💎 הגלריה", "➕ הוספה"])
 
-# --- טאב הוספה ---
 with tab2:
-    st.header("הוספת מטבע")
+    st.header("הוספת מטבע חדש")
     with st.form("add_form", clear_on_submit=True):
         n_name = st.text_input("שם:")
         n_price = st.text_input("מחיר:")
@@ -145,10 +139,8 @@ with tab2:
                     df = pd.concat([df, new_row], ignore_index=True)
                     save_data(df)
                     st.success("נוסף!")
-                    time.sleep(0.5)
                     st.rerun()
 
-# --- טאב גלריה ---
 with tab1:
     if df.empty:
         st.info("הקטלוג ריק.")
@@ -160,19 +152,16 @@ with tab1:
                 with cols[index % grid_size]:
                     img_list = str(row["images"]).split("|")
                     
-                    # קרוסלה עם JavaScript פשוט למעבר בלחיצה (ימין=הבא, שמאל=הקודם)
+                    # בניית הקרוסלה עם JavaScript ששולט על הגלילה בלחיצה
+                    images_html = "".join([f'<div class="scroll-item"><img src="{url}"></div>' for url in img_list])
+                    
                     carousel_html = f"""
                     <div class="carousel-wrapper">
-                        <div class="scroll-container" onclick="
-                            const rect = this.getBoundingClientRect();
-                            const x = event.clientX - rect.left;
-                            if (x > rect.width / 2) {{
-                                this.scrollBy({{left: rect.width, behavior: 'smooth'}});
-                            }} else {{
-                                this.scrollBy({{left: -rect.width, behavior: 'smooth'}});
-                            }}">
-                            {''.join([f'<div class="scroll-item"><img src="{url}"></div>' for url in img_list])}
+                        <button class="nav-arrow prev-arrow" onclick="document.getElementById('sc_{coin_id}').scrollBy({{left: -document.getElementById('sc_{coin_id}').offsetWidth, behavior: 'smooth'}})">‹</button>
+                        <div class="scroll-container" id="sc_{coin_id}">
+                            {images_html}
                         </div>
+                        <button class="nav-arrow next-arrow" onclick="document.getElementById('sc_{coin_id}').scrollBy({{left: document.getElementById('sc_{coin_id}').offsetWidth, behavior: 'smooth'}})">›</button>
                     </div>
                     """
                     st.markdown(carousel_html, unsafe_allow_html=True)
@@ -197,7 +186,8 @@ with tab1:
                                 with st.spinner('מעלה...'):
                                     new_urls = [upload_to_cloud(nf) for nf in add_f]
                                     idx = df[df['id'] == coin_id].index[0]
-                                    df.at[idx, 'images'] = f"{df.at[idx, 'images']}|{'|'.join(new_urls)}"
+                                    old_imgs = df.at[idx, 'images']
+                                    df.at[idx, 'images'] = f"{old_imgs}|{'|'.join(new_urls)}"
                                     save_data(df)
                                     st.rerun()
 
