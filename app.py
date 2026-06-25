@@ -75,7 +75,7 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-DB_FILE = 'final_coins_db_v12.csv'
+DB_FILE = 'final_coins_db_v13.csv'
 COLUMNS = ["id", "name", "price", "country", "material", "year", "images", "comments"]
 
 def load_data():
@@ -121,6 +121,7 @@ tab1, tab2 = st.tabs(["🪙 הגלריה", "📜 רשימה וסיכום"])
 with tab1:
     cols = st.columns(grid_size)
     
+    # 1. הצגת המטבעות
     for index, row in filtered_df.iterrows():
         col_idx = index % grid_size
         coin_id = str(row['id'])
@@ -143,18 +144,17 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-            with st.expander("🔍 ניהול ופרטים"):
+            with st.expander("🔍 ניהול"):
                 e_name = st.text_input("שם:", value=str(row["name"]), key=f"en_{coin_id}")
                 e_price = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{coin_id}")
                 e_country = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(row['country']) if row['country'] in COUNTRIES else 0, key=f"ec_{coin_id}")
                 e_mat = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(row['material']) if row['material'] in MATERIALS else 0, key=f"em_{coin_id}")
                 e_year = st.text_input("שנה:", value=str(row["year"]), key=f"ey_{coin_id}")
                 
-                if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
+                if st.button("💾 שמור", key=f"sv_{coin_id}"):
                     full_df = load_data()
                     idx_match = full_df[full_df['id'] == coin_id].index
                     if not idx_match.empty:
-                        # תיקון ה-NameError: החלפת em ב-e_mat
                         full_df.at[idx_match[0], 'name'] = e_name
                         full_df.at[idx_match[0], 'price'] = e_price
                         full_df.at[idx_match[0], 'country'] = e_country
@@ -166,24 +166,30 @@ with tab1:
                 if st.button("🗑️ מחק", key=f"del_{coin_id}", use_container_width=True):
                     df = df[df['id'] != coin_id]; save_data(df); st.rerun()
 
-    # כפתור הוספה
+    # 2. כפתור הוספה (➕) עם איפוס אוטומטי
     last_col_idx = len(filtered_df) % grid_size
     with cols[last_col_idx]:
         with st.popover("＋"):
-            st.subheader("הוספת מטבע חדש")
-            q_n = st.text_input("שם המטבע:", key="q_n")
-            q_p = st.text_input("מחיר:", key="q_p")
-            q_c = st.selectbox("מדינה:", COUNTRIES, key="q_c")
-            q_m = st.selectbox("חומר:", MATERIALS, key="q_m")
-            q_y = st.text_input("שנה:", key="q_y")
-            q_f = st.file_uploader("תמונות:", accept_multiple_files=True, key="q_f")
-            if st.button("🚀 שמור", key="q_s", use_container_width=True):
-                if q_n and q_f:
-                    with st.spinner('מעלה...'):
-                        urls = [upload_to_cloud(f) for f in q_f]
-                        new_row = pd.DataFrame([{"id": str(int(time.time())), "name": q_n, "price": q_p, "country": q_c, "material": q_m, "year": q_y, "images": "|".join(urls), "comments": ""}])
-                        save_data(pd.concat([df, new_row], ignore_index=True))
-                        st.rerun()
+            # שימוש ב-st.form עם clear_on_submit=True כדי לאפס את החלונית
+            with st.form("quick_add_form", clear_on_submit=True):
+                st.subheader("הוספת מטבע חדש")
+                q_n = st.text_input("שם המטבע:")
+                q_p = st.text_input("מחיר:")
+                q_c = st.selectbox("מדינה:", COUNTRIES)
+                q_m = st.selectbox("חומר:", MATERIALS)
+                q_y = st.text_input("שנה:")
+                q_f = st.file_uploader("תמונות:", accept_multiple_files=True)
+                
+                if st.form_submit_button("🚀 שמור לקטלוג", use_container_width=True):
+                    if q_n and q_f:
+                        with st.spinner('מעלה לענן...'):
+                            urls = [upload_to_cloud(f) for f in q_f]
+                            new_id = str(int(time.time()))
+                            new_row = pd.DataFrame([{"id": new_id, "name": q_n, "price": q_p, "country": q_c, "material": q_m, "year": q_y, "images": "|".join(urls), "comments": ""}])
+                            save_data(pd.concat([df, new_row], ignore_index=True))
+                            st.rerun() # מרענן את הגלריה ומציג את המטבע החדש
+                    else:
+                        st.error("חובה להזין שם ותמונה")
         st.markdown("<p class='add-label'>הוספה חדש</p>", unsafe_allow_html=True)
 
 with tab2:
