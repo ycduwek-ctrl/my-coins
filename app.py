@@ -12,50 +12,51 @@ st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
 # הגדרת Cloudinary
 try:
-    if "CLOUDINARY_CLOUD_NAME" in st.secrets:
-        cloudinary.config(
-            cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
-            api_key = st.secrets["CLOUDINARY_API_KEY"],
-            api_secret = st.secrets["CLOUDINARY_API_SECRET"]
-        )
-        READY = True
-    else:
-        READY = False
+    cloudinary.config(
+        cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
+        api_key = st.secrets["CLOUDINARY_API_KEY"],
+        api_secret = st.secrets["CLOUDINARY_API_SECRET"]
+    )
+    READY = True
 except:
     READY = False
 
-# עיצוב CSS להשגת המראה המדויק מהתמונה ששלחת
+# עיצוב CSS למראה המדויק
 st.markdown("""
 <style>
+    /* הגדרות קרוסלה */
     .carousel-wrapper { position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; border-radius: 12px; background: #f8f9fa; }
     .scroll-container { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; gap: 0px; scrollbar-width: none; width: 100%; height: 100%; }
     .scroll-container::-webkit-scrollbar { display: none; }
-    .scroll-item { flex: 0 0 100%; scroll-snap-align: center; aspect-ratio: 1/1; }
+    .scroll-item { flex: 0 0 100%; scroll-snap-align: center; aspect-ratio: 1 / 1; }
     .scroll-item img { width: 100%; height: 100%; object-fit: cover; }
     .nav-arrow { position: absolute; top: 0; bottom: 0; width: 35px; background: rgba(0,0,0,0.05); color: white; border: none; font-size: 25px; cursor: pointer; z-index: 5; }
     .nav-arrow:hover { background: rgba(0,0,0,0.2); }
     .prev-arrow { left: 0; } .next-arrow { right: 0; }
 
-    /* עיצוב תגיות (Chips) כמו בתמונה */
-    .tag-container { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; margin-top: 8px; direction: rtl; overflow-x: auto; }
+    /* שורת מידע מעוצבת (Chips) */
+    .tag-container { display: flex; align-items: center; gap: 5px; margin-top: 8px; direction: rtl; flex-wrap: nowrap; overflow-x: auto; }
     .coin-name { font-weight: bold; border-left: 2px solid #ddd; padding-left: 8px; margin-left: 5px; white-space: nowrap; }
     .price-green { color: #2e7d32; font-weight: bold; margin-left: 10px; white-space: nowrap; }
     
-    .chip { padding: 4px 12px; border-radius: 15px; font-size: 0.75em; border: 1px solid rgba(0,0,0,0.05); white-space: nowrap; }
+    .chip { padding: 4px 10px; border-radius: 12px; font-size: 0.8em; white-space: nowrap; border: 1px solid rgba(0,0,0,0.05); }
     .chip-country { background-color: #e8f5e9; color: #2e7d32; } /* ירוק */
     .chip-material { background-color: #fff9c4; color: #856404; } /* צהוב */
     .chip-year { background-color: #fce4ec; color: #880e4f; } /* ורוד */
 
-    /* עיצוב כפתור הפלוס - תמונת המטבע המוזהב */
-    .stPopover { width: 100%; }
-    .stPopover > button { 
-        width: 100% !important; aspect-ratio: 1/1 !important; border-radius: 12px !important; 
-        border: 1px solid #ddd !important; padding: 0 !important; overflow: hidden !important;
+    /* כפתור הפלוס - המטבע המוזהב */
+    div[data-testid="stPopover"] > button {
         background-image: url('https://res.cloudinary.com/dvxamxm9x/image/upload/v1782371799/coin_Plus_txh2vk.jpg') !important;
-        background-size: cover !important; background-position: center !important;
-        color: transparent !important; /* מסתיר את הטקסט המובנה */
+        background-size: cover !important;
+        background-position: center !important;
+        width: 100% !important;
+        aspect-ratio: 1/1 !important;
+        border: 2px solid #2e7d32 !important;
+        border-radius: 15px !important;
+        color: transparent !important; /* הסתרת טקסט */
+        height: auto !important;
     }
-    .stPopover > button:hover { border-color: #2e7d32 !important; transform: scale(1.02); }
+    div[data-testid="stPopover"] { width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -73,18 +74,12 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-# שם קובץ חדש (V5) כדי למנוע את ה-KeyError
-DB_FILE = 'coins_catalog_v5.csv'
+DB_FILE = 'final_coins_db_v6.csv'
 COLUMNS = ["id", "name", "price", "country", "material", "year", "images", "comments"]
 
 def load_data():
     if os.path.exists(DB_FILE):
-        try: 
-            df = pd.read_csv(DB_FILE, dtype=str)
-            # לוודא שכל העמודות קיימות
-            for col in COLUMNS:
-                if col not in df.columns: df[col] = ""
-            return df
+        try: return pd.read_csv(DB_FILE, dtype=str)
         except: pass
     return pd.DataFrame(columns=COLUMNS)
 
@@ -112,7 +107,7 @@ tab1, tab2 = st.tabs(["🪙 הגלריה", "📜 רשימה וסיכום"])
 with tab1:
     cols = st.columns(grid_size)
     
-    # 1. הצגת המטבעות
+    # 1. הצגת המטבעות הקיימים
     for index, row in filtered_df.iterrows():
         col_idx = index % grid_size
         coin_id = str(row['id'])
@@ -156,10 +151,11 @@ with tab1:
                 if st.button("🗑️ מחק", key=f"del_{coin_id}", use_container_width=True):
                     df = df[df['id'] != coin_id]; save_data(df); st.rerun()
 
-    # 2. כפתור הוספה (מטבע זהב) בסוף
+    # 2. כפתור הוספה (מטבע זהב) בסוף הרשימה
     last_col_idx = len(filtered_df) % grid_size
     with cols[last_col_idx]:
-        with st.popover(" "): # טקסט ריק כי התמונה היא הרקע
+        # ה-Popover משתמש ב-CSS כדי להציג את תמונת המטבע
+        with st.popover(" "): 
             st.subheader("הוספת מטבע חדש")
             q_name = st.text_input("שם המטבע:", key="q_n")
             q_price = st.text_input("מחיר:", key="q_p")
