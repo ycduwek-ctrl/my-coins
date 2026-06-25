@@ -21,10 +21,10 @@ try:
 except:
     READY = False
 
-# עיצוב CSS למראה המדויק
+# עיצוב CSS מתקדם להעתקת המראה מהצילום מסך שלך
 st.markdown("""
 <style>
-    /* הגדרות קרוסלה */
+    /* קרוסלה */
     .carousel-wrapper { position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; border-radius: 12px; background: #f8f9fa; }
     .scroll-container { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; gap: 0px; scrollbar-width: none; width: 100%; height: 100%; }
     .scroll-container::-webkit-scrollbar { display: none; }
@@ -34,33 +34,29 @@ st.markdown("""
     .nav-arrow:hover { background: rgba(0,0,0,0.2); }
     .prev-arrow { left: 0; } .next-arrow { right: 0; }
 
-    /* שורת מידע מעוצבת (Chips) */
-    .tag-container { display: flex; align-items: center; gap: 5px; margin-top: 8px; direction: rtl; flex-wrap: nowrap; overflow-x: auto; }
-    .coin-name { font-weight: bold; border-left: 2px solid #ddd; padding-left: 8px; margin-left: 5px; white-space: nowrap; }
-    .price-green { color: #2e7d32; font-weight: bold; margin-left: 10px; white-space: nowrap; }
+    /* שורת תגיות (Chips) - העתקה מדויקת מהתמונה */
+    .tag-container { display: flex; align-items: center; gap: 4px; margin-top: 8px; direction: rtl; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 5px; }
+    .coin-name { font-weight: bold; border-left: 2px solid #ddd; padding-left: 8px; margin-left: 5px; white-space: nowrap; font-size: 1.1em; }
+    .price-green { color: #2e7d32; font-weight: bold; margin-left: 8px; white-space: nowrap; font-size: 1.1em; }
     
-    .chip { padding: 4px 10px; border-radius: 12px; font-size: 0.8em; white-space: nowrap; border: 1px solid rgba(0,0,0,0.05); }
-    .chip-country { background-color: #e8f5e9; color: #2e7d32; } /* ירוק */
-    .chip-material { background-color: #fff9c4; color: #856404; } /* צהוב */
-    .chip-year { background-color: #fce4ec; color: #880e4f; } /* ורוד */
+    .chip { padding: 4px 12px; border-radius: 20px; font-size: 0.8em; white-space: nowrap; font-weight: 500; }
+    .chip-country { background-color: #e8f5e9; color: #2e7d32; } /* ירוק בהיר */
+    .chip-material { background-color: #fff9c4; color: #856404; } /* צהוב/קרם */
+    .chip-year { background-color: #fce4ec; color: #880e4f; } /* ורוד בהיר */
 
-    /* כפתור הפלוס - המטבע המוזהב */
-    div[data-testid="stPopover"] > button {
-        background-image: url('https://res.cloudinary.com/dvxamxm9x/image/upload/v1782371799/coin_Plus_txh2vk.jpg') !important;
-        background-size: cover !important;
-        background-position: center !important;
-        width: 100% !important;
-        aspect-ratio: 1/1 !important;
-        border: 2px solid #2e7d32 !important;
-        border-radius: 15px !important;
-        color: transparent !important; /* הסתרת טקסט */
-        height: auto !important;
+    /* כרטיס הוספה בסוף */
+    .add-card { 
+        border: 2px solid #2e7d32; border-radius: 15px; padding: 0px; 
+        text-align: center; background: white; transition: 0.3s;
     }
-    div[data-testid="stPopover"] { width: 100%; }
+    .add-card:hover { transform: scale(1.02); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    
+    /* תיקון לטאבים ואיקונים */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    button[data-baseweb="tab"] { font-size: 18px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# רשימות
 COUNTRIES = ["ישראל", "המנדט הבריטי", "האימפריה העות'מאנית", "ארה\"ב", "בריטניה", "רוסיה", "ברית המועצות", "אחר"]
 MATERIALS = ["כסף", "זהב", "נחושת", "ניקל", "ברונזה", "אלומיניום", "מתכת מעורבת"]
 
@@ -74,12 +70,16 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-DB_FILE = 'final_coins_db_v6.csv'
+DB_FILE = 'final_coins_db_v7.csv'
 COLUMNS = ["id", "name", "price", "country", "material", "year", "images", "comments"]
 
 def load_data():
     if os.path.exists(DB_FILE):
-        try: return pd.read_csv(DB_FILE, dtype=str)
+        try: 
+            df = pd.read_csv(DB_FILE, dtype=str)
+            for col in COLUMNS:
+                if col not in df.columns: df[col] = ""
+            return df
         except: pass
     return pd.DataFrame(columns=COLUMNS)
 
@@ -91,8 +91,8 @@ if not READY:
 
 df = load_data()
 
-# --- סינון ---
-st.sidebar.title("🔍 סינון")
+# --- סינון מהיר ---
+st.sidebar.title("🔍 חיפוש")
 f_country = st.sidebar.multiselect("מדינה:", COUNTRIES)
 f_material = st.sidebar.multiselect("חומר:", MATERIALS)
 grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
@@ -102,6 +102,7 @@ if f_country: filtered_df = filtered_df[filtered_df['country'].isin(f_country)]
 if f_material: filtered_df = filtered_df[filtered_df['material'].isin(f_material)]
 
 # --- ממשק ראשי ---
+# החלפת היהלום במטבע (🪙) בטאבים
 tab1, tab2 = st.tabs(["🪙 הגלריה", "📜 רשימה וסיכום"])
 
 with tab1:
@@ -136,7 +137,6 @@ with tab1:
                 e_country = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(row['country']) if row['country'] in COUNTRIES else 0, key=f"ec_{coin_id}")
                 e_mat = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(row['material']) if row['material'] in MATERIALS else 0, key=f"em_{coin_id}")
                 e_year = st.text_input("שנה:", value=str(row["year"]), key=f"ey_{coin_id}")
-                
                 if st.button("💾 שמור", key=f"sv_{coin_id}"):
                     full_df = load_data()
                     idx_match = full_df[full_df['id'] == coin_id].index
@@ -147,16 +147,21 @@ with tab1:
                         full_df.at[idx_match[0], 'material'] = e_mat
                         full_df.at[idx_match[0], 'year'] = e_year
                         save_data(full_df); st.rerun()
-
                 if st.button("🗑️ מחק", key=f"del_{coin_id}", use_container_width=True):
                     df = df[df['id'] != coin_id]; save_data(df); st.rerun()
 
-    # 2. כפתור הוספה (מטבע זהב) בסוף הרשימה
+    # 2. כפתור הוספה (המטבע עם הפלוס) - פתרון חסין
     last_col_idx = len(filtered_df) % grid_size
     with cols[last_col_idx]:
-        # ה-Popover משתמש ב-CSS כדי להציג את תמונת המטבע
-        with st.popover(" "): 
-            st.subheader("הוספת מטבע חדש")
+        plus_img_url = "https://res.cloudinary.com/dvxamxm9x/image/upload/v1782371799/coin_Plus_txh2vk.jpg"
+        
+        # יצירת מראה של כרטיס
+        st.markdown('<div class="add-card">', unsafe_allow_html=True)
+        st.image(plus_img_url, use_container_width=True)
+        
+        # פופאובר עם טקסט ברור
+        with st.popover("➕ הוסף מטבע חדש", use_container_width=True):
+            st.subheader("פרטי מטבע חדש")
             q_name = st.text_input("שם המטבע:", key="q_n")
             q_price = st.text_input("מחיר:", key="q_p")
             q_country = st.selectbox("מדינה:", COUNTRIES, key="q_c")
@@ -167,10 +172,9 @@ with tab1:
                 if q_name and q_files:
                     with st.spinner('מעלה...'):
                         urls = [upload_to_cloud(f) for f in q_files]
-                        new_id = str(int(time.time()))
-                        new_row = pd.DataFrame([{"id": new_id, "name": q_name, "price": q_price, "country": q_country, "material": q_mat, "year": q_year, "images": "|".join(urls), "comments": ""}])
+                        new_row = pd.DataFrame([{"id": str(int(time.time())), "name": q_name, "price": q_price, "country": q_country, "material": q_mat, "year": q_year, "images": "|".join(urls), "comments": ""}])
                         save_data(pd.concat([df, new_row], ignore_index=True)); st.rerun()
-        st.write("<p style='text-align:center; color:#2e7d32; font-weight:bold; margin-top:-5px;'>הוסף חדש</p>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
     total_val = pd.to_numeric(df['price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').sum()
