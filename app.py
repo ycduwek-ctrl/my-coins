@@ -12,37 +12,54 @@ st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
 # הגדרת Cloudinary
 try:
-    cloudinary.config(
-        cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
-        api_key = st.secrets["CLOUDINARY_API_KEY"],
-        api_secret = st.secrets["CLOUDINARY_API_SECRET"]
-    )
-    READY = True
+    if "CLOUDINARY_CLOUD_NAME" in st.secrets:
+        cloudinary.config(
+            cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
+            api_key = st.secrets["CLOUDINARY_API_KEY"],
+            api_secret = st.secrets["CLOUDINARY_API_SECRET"]
+        )
+        READY = True
 except:
     READY = False
 
-# עיצוב CSS - גלריה נקייה ותגיות צבעוניות
+# עיצוב CSS - גלילת Swipe מקצועית (Snap Scroll)
 st.markdown("""
 <style>
-    /* עיצוב המכולה של התמונה */
-    .img-container {
+    /* מיכל הגלריה הריבועי */
+    .gallery-container {
         width: 100%;
         aspect-ratio: 1 / 1;
-        overflow: hidden;
+        overflow-x: auto;
+        display: flex;
+        scroll-snap-type: x mandatory; /* גורם לתמונה להימגנט למקום */
+        scroll-behavior: smooth;
         border-radius: 12px;
-        cursor: pointer;
         background-color: #f8f9fa;
-        position: relative;
+        -webkit-overflow-scrolling: touch; /* גלילה חלקה באייפון */
     }
-    .img-container img {
+    
+    /* הסתרת סרגל גלילה למראה נקי */
+    .gallery-container::-webkit-scrollbar { height: 4px; }
+    .gallery-container::-webkit-scrollbar-thumb { background: #ddd; border-radius: 10px; }
+
+    .gallery-item {
+        flex: 0 0 100%;
+        width: 100%;
+        height: 100%;
+        scroll-snap-align: start;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .gallery-item img {
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition: opacity 0.2s;
+        border-radius: 12px;
     }
-    .img-container:active img { opacity: 0.7; }
 
-    /* שורת תגיות (Chips) */
+    /* תגיות (Chips) */
     .tag-container { display: flex; align-items: center; gap: 5px; margin-top: 8px; direction: rtl; flex-wrap: nowrap; overflow-x: auto; }
     .coin-name { font-weight: bold; border-left: 2px solid #ddd; padding-left: 8px; margin-left: 5px; white-space: nowrap; }
     .price-green { color: #2e7d32; font-weight: bold; margin-left: 10px; white-space: nowrap; }
@@ -52,7 +69,7 @@ st.markdown("""
     .chip-material { background-color: #fff9c4; color: #856404; } 
     .chip-year { background-color: #fce4ec; color: #880e4f; }
 
-    /* עיצוב כפתור ההוספה הירוק */
+    /* כפתור הוספה ירוק */
     div[data-testid="stPopover"] { width: 100%; display: flex; justify-content: center; }
     div[data-testid="stPopover"] > button {
         width: 100% !important;
@@ -83,7 +100,7 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-DB_FILE = 'final_coins_db_v14.csv'
+DB_FILE = 'final_coins_db_v15.csv'
 COLUMNS = ["id", "name", "price", "country", "material", "year", "images", "comments"]
 
 def load_data():
@@ -102,7 +119,7 @@ if not READY:
 df = load_data()
 
 # --- סינון מהיר בסידבר ---
-st.sidebar.title("🔍 סינון")
+st.sidebar.title("🔍 סינון וחיפוש")
 COUNTRIES = ["ישראל", "המנדט הבריטי", "האימפריה העות'מאנית", "ארה\"ב", "בריטניה", "רוסיה", "ברית המועצות", "אחר"]
 MATERIALS = ["כסף", "זהב", "נחושת", "ניקל", "ברונזה", "אלומיניום", "מתכת מעורבת"]
 
@@ -128,29 +145,17 @@ tab1, tab2 = st.tabs(["🪙 הגלריה", "📜 רשימה וסיכום"])
 with tab1:
     cols = st.columns(grid_size)
     
-    # הצגת המטבעות
+    # 1. הצגת המטבעות
     for index, row in filtered_df.iterrows():
         col_idx = index % grid_size
         coin_id = str(row['id'])
         with cols[col_idx]:
             img_list = str(row["images"]).split("|")
             
-            # ג'אווה סקריפט להחלפת תמונה בלחיצה בלולאה
-            js_urls = str(img_list).replace("'", '"') # הכנה ל-JS
-            
-            click_html = f"""
-            <div class="img-container" onclick='
-                const urls = {js_urls};
-                const img = this.querySelector("img");
-                let currentSrc = img.src;
-                let idx = urls.indexOf(currentSrc);
-                if (idx === -1) idx = 0;
-                img.src = urls[(idx + 1) % urls.length];
-            '>
-                <img src="{img_list[0]}">
-            </div>
-            """
-            st.markdown(click_html, unsafe_allow_html=True)
+            # יצירת אלמנט הגלילה (Swipe) ב-HTML
+            items_html = "".join([f'<div class="gallery-item"><img src="{url}"></div>' for url in img_list])
+            gallery_html = f'<div class="gallery-container">{items_html}</div>'
+            st.markdown(gallery_html, unsafe_allow_html=True)
             
             # שורת מידע
             st.markdown(f"""
@@ -170,7 +175,7 @@ with tab1:
                 em = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(row['material']) if row['material'] in MATERIALS else 0, key=f"em_{coin_id}")
                 ey = st.text_input("שנה:", value=str(row["year"]), key=f"ey_{coin_id}")
                 
-                if st.button("💾 שמור", key=f"sv_{coin_id}"):
+                if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
                     full_df = load_data()
                     idx_match = full_df[full_df['id'] == coin_id].index[0]
                     full_df.at[idx_match, 'name'], full_df.at[idx_match, 'price'] = en, ep
@@ -178,27 +183,27 @@ with tab1:
                     full_df.at[idx_match, 'year'] = ey
                     save_data(full_df); st.rerun()
 
-                st.divider()
                 if st.button("🗑️ מחק פריט", key=f"del_{coin_id}", use_container_width=True):
                     df = df[df['id'] != coin_id]; save_data(df); st.rerun()
 
-    # כפתור הוספה מהירה בסוף
+    # 2. כפתור הוספה (➕) ירוק בסוף
     last_col_idx = len(filtered_df) % grid_size
     with cols[last_col_idx]:
         with st.popover("＋"):
-            with st.form("q_add", clear_on_submit=True):
-                st.subheader("הוספה מהירה")
-                qn = st.text_input("שם המטבע:")
-                qp = st.text_input("מחיר:")
-                qc = st.selectbox("מדינה:", COUNTRIES)
-                qm = st.selectbox("חומר:", MATERIALS)
-                qy = st.text_input("שנה:")
-                qf = st.file_uploader("תמונות:", accept_multiple_files=True)
-                if st.form_submit_button("🚀 שמור"):
-                    if qn and qf:
-                        urls = [upload_to_cloud(f) for f in qf]
-                        new_row = pd.DataFrame([{"id": str(int(time.time())), "name": qn, "price": qp, "country": qc, "material": qm, "year": qy, "images": "|".join(urls)}])
-                        save_data(pd.concat([df, new_row], ignore_index=True)); st.rerun()
+            with st.form("quick_add_form", clear_on_submit=True):
+                st.subheader("הוספת מטבע חדש")
+                q_n = st.text_input("שם המטבע:")
+                q_p = st.text_input("מחיר:")
+                q_c = st.selectbox("מדינה:", COUNTRIES)
+                q_m = st.selectbox("חומר:", MATERIALS)
+                q_y = st.text_input("שנה:")
+                q_f = st.file_uploader("בחר תמונות:", accept_multiple_files=True)
+                if st.form_submit_button("🚀 שמור לקטלוג", use_container_width=True):
+                    if q_n and q_f:
+                        with st.spinner('מעלה...'):
+                            urls = [upload_to_cloud(f) for f in q_f]
+                            new_row = pd.DataFrame([{"id": str(int(time.time())), "name": q_n, "price": q_p, "country": q_c, "material": q_m, "year": q_y, "images": "|".join(urls)}])
+                            save_data(pd.concat([df, new_row], ignore_index=True)); st.rerun()
         st.markdown("<p class='add-label'>הוספה חדש</p>", unsafe_allow_html=True)
 
 with tab2:
