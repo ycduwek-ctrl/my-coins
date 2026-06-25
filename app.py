@@ -8,7 +8,7 @@ import io
 import time
 
 # --- הגדרות דף ---
-st.set_page_config(page_title="Israel Coin Index", layout="wide")
+st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
 # הגדרת Cloudinary
 try:
@@ -21,7 +21,7 @@ try:
 except:
     READY = False
 
-# עיצוב CSS מתקדם
+# עיצוב CSS למראה אינסטגרם נקי עם חצים ו-Swipe
 st.markdown("""
 <style>
     .carousel-wrapper { position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; border-radius: 12px; background: #f8f9fa; }
@@ -33,15 +33,23 @@ st.markdown("""
     .nav-arrow:hover { background: rgba(0,0,0,0.4); }
     .prev-arrow { left: 0; } .next-arrow { right: 0; }
     
-    /* תגיות סינון מהיר */
-    .filter-tag { background: #e1f5fe; color: #01579b; padding: 4px 12px; border-radius: 15px; font-size: 0.85em; margin: 2px; display: inline-block; }
-    .price-bold { color: #2e7d32; font-weight: bold; }
+    .filter-tag { background: #f1f3f4; color: #5f6368; padding: 3px 10px; border-radius: 12px; font-size: 0.8em; margin: 2px; display: inline-block; border: 1px solid #ddd; }
+    .price-label { color: #2e7d32; font-weight: bold; font-size: 1.1em; }
     
-    .stPopover > button { width: 100% !important; aspect-ratio: 1/1 !important; border-radius: 12px !important; border: 2px dashed #ddd !important; font-size: 40px !important; color: #bbb !important; }
+    .stPopover > button { width: 100% !important; aspect-ratio: 1/1 !important; border-radius: 12px !important; border: 2px dashed #ccc !important; font-size: 40px !important; color: #bbb !important; }
+    .main { direction: rtl; }
 </style>
 """, unsafe_allow_html=True)
 
-# פונקציות בסיס
+# רשימת מדינות היסטורית ומודרנית
+COUNTRIES = [
+    "ישראל", "המנדט הבריטי", "האימפריה העות'מאנית", "ארה\"ב", "בריטניה", "רוסיה", 
+    "ברית המועצות", "גרמניה", "צרפת", "קנדה", "איטליה", "ספרד", "מצרים", 
+    "ירדן", "לבנון", "סוריה", "יוון", "טורקיה", "סין", "יפן", "אחר"
+]
+
+MATERIALS = ["נחושת", "כסף", "זהב", "ניקל", "ברונזה", "אלומיניום", "פלדה", "מתכת מעורבת"]
+
 def upload_to_cloud(file):
     img = Image.open(file).convert('RGB')
     w, h = img.size
@@ -52,9 +60,8 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-# שימוש בקובץ חדש לתמיכה בסינונים
-DB_FILE = 'coins_v4_filtered.csv'
-COLUMNS = ["id", "name", "price", "country", "year", "type", "material", "condition", "period", "images", "comments"]
+DB_FILE = 'coins_final_data.csv'
+COLUMNS = ["id", "name", "price", "country", "material", "year", "images", "comments"]
 
 def load_data():
     if os.path.exists(DB_FILE):
@@ -67,67 +74,33 @@ def save_data(df):
     df.to_csv(DB_FILE, index=False)
 
 if not READY:
-    st.error("⚠️ חסרים פרטי Cloudinary.")
+    st.error("⚠️ חסרים פרטי Cloudinary ב-Secrets.")
     st.stop()
 
-# טעינת נתונים
 df = load_data()
 
-# --- תפריט צד: מערכת סינונים (UX המלצות) ---
-st.sidebar.title("🔍 חיפוש וסינון")
-
-# קבוצה 1: סינון מהיר
-with st.sidebar.expander("⚡ סינון מהיר", expanded=True):
-    f_country = st.multiselect("מדינה / אזור:", ["ישראל", "ארה\"ב", "בריטניה", "אירופה", "אסיה", "עתיק"], key="f_country")
-    f_condition = st.multiselect("מצב המטבע:", ["חדש (UNC)", "כמעט חדש", "משומש", "שחוק"], key="f_cond")
-    f_max_price = st.number_input("מחיר מקסימלי (₪):", value=0, step=50)
-
-# קבוצה 2: סינון מתקדם
-with st.sidebar.expander("🛠️ סינון מתקדם"):
-    f_year = st.text_input("שנה ספציפית:", key="f_year")
-    f_material = st.multiselect("חומר:", ["נחושת", "כסף", "זהב", "ניקל", "ברונזה", "אלומיניום"], key="f_mat")
-
-# קבוצה 3: סינון עניין ותקופה
-with st.sidebar.expander("⏳ תקופה וסוג"):
-    f_period = st.multiselect("תקופה:", ["עות'מאני", "מנדט בריטי", "קום המדינה", "מודרני"], key="f_per")
-    f_type = st.multiselect("סוג:", ["רגיל", "זיכרון", "אסימון", "שטר"], key="f_type")
+# --- סינון מהיר בסידבר ---
+st.sidebar.title("🔍 סינון מהיר")
+f_country = st.sidebar.multiselect("מדינה / ישות:", COUNTRIES)
+f_material = st.sidebar.multiselect("חומר:", MATERIALS)
+f_year = st.sidebar.text_input("חיפוש לפי שנה:")
 
 st.sidebar.divider()
 grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 
-# --- לוגיקת סינון ---
+# לוגיקת סינון
 filtered_df = df.copy()
 if f_country: filtered_df = filtered_df[filtered_df['country'].isin(f_country)]
-if f_condition: filtered_df = filtered_df[filtered_df['condition'].isin(f_condition)]
-if f_type: filtered_df = filtered_df[filtered_df['type'].isin(f_type)]
 if f_material: filtered_df = filtered_df[filtered_df['material'].isin(f_material)]
-if f_period: filtered_df = filtered_df[filtered_df['period'].isin(f_period)]
-if f_year: filtered_df = filtered_df[filtered_df['year'] == f_year]
-if f_max_price > 0:
-    filtered_df['price_num'] = pd.to_numeric(filtered_df['price'], errors='coerce').fillna(0)
-    filtered_df = filtered_df[filtered_df['price_num'] <= f_max_price]
+if f_year: filtered_df = filtered_df[filtered_df['year'].str.contains(f_year, na=False)]
 
 # --- ממשק ראשי ---
-tab1, tab2 = st.tabs(["💎 הגלריה", "➕ ניהול מלא"])
+tab1, tab2 = st.tabs(["💎 הגלריה", "📜 רשימה וסיכום"])
 
 with tab1:
-    # תגיות סינון מהיר (UI)
-    st.write("🔥 **גישה מהירה:**")
-    c1, c2, c3, c4 = st.columns(4)
-    if c1.button("🇮🇱 מטבעות ישראל"): f_country = ["ישראל"]; st.rerun()
-    if c2.button("🥈 מטבעות כסף"): f_material = ["כסף"]; st.rerun()
-    if c3.button("💰 עד 100 ₪"): f_max_price = 100; st.rerun()
-    if c4.button("🧹 נקה הכל"): st.rerun()
-
-    st.divider()
-    
-    # חישוב שווי מסונן
-    total_val = pd.to_numeric(filtered_df['price'], errors='coerce').sum()
-    st.write(f"נמצאו **{len(filtered_df)}** מטבעות | שווי תצוגה: **{total_val:,.0f} ₪**")
-
     cols = st.columns(grid_size)
     
-    # הצגת המטבעות המסוננים
+    # הצגת המטבעות
     for index, row in filtered_df.iterrows():
         col_idx = index % grid_size
         coin_id = str(row['id'])
@@ -143,42 +116,51 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown(f"**{row['name']}** | <span class='price-bold'>{row['price']} ₪</span>", unsafe_allow_html=True)
-            st.markdown(f"<span class='filter-tag'>{row['country']}</span><span class='filter-tag'>{row['material']}</span>", unsafe_allow_html=True)
+            st.markdown(f"**{row['name']}** | <span class='price-label'>{row['price']} ₪</span>", unsafe_allow_html=True)
+            st.markdown(f"<span class='filter-tag'>{row['country']}</span><span class='filter-tag'>{row['year']}</span>", unsafe_allow_html=True)
 
-            with st.expander("🔍 פרטים וניהול"):
-                # עריכה מורחבת
+            with st.expander("🔍 ניהול ופרטים"):
                 e_name = st.text_input("שם:", value=str(row["name"]), key=f"en_{coin_id}")
                 e_price = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{coin_id}")
-                e_country = st.selectbox("מדינה:", ["ישראל", "ארה\"ב", "בריטניה", "אירופה", "אסיה", "עתיק"], index=0, key=f"ec_{coin_id}")
-                e_mat = st.selectbox("חומר:", ["נחושת", "כסף", "זהב", "ניקל", "ברונזה", "אלומיניום"], key=f"em_{coin_id}")
+                e_country = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(row['country']) if row['country'] in COUNTRIES else 0, key=f"ec_{coin_id}")
+                e_mat = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(row['material']) if row['material'] in MATERIALS else 0, key=f"em_{coin_id}")
+                e_year = st.text_input("שנה:", value=str(row["year"]), key=f"ey_{coin_id}")
                 e_comm = st.text_area("תגובה:", value=str(row["comments"]), key=f"ect_{coin_id}")
                 
                 if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
-                    df.loc[df['id'] == coin_id, ["name", "price", "country", "material", "comments"]] = [e_name, e_price, e_country, e_mat, e_comm]
-                    save_data(df); st.rerun()
+                    full_df = load_data()
+                    idx = full_df[full_df['id'] == coin_id].index[0]
+                    full_df.at[idx, 'name'], full_df.at[idx, 'price'] = e_name, e_price
+                    full_df.at[idx, 'country'], full_df.at[idx, 'material'] = e_country, e_mat
+                    full_df.at[idx, 'year'], full_df.at[idx, 'comments'] = e_year, e_comm
+                    save_data(full_df); st.rerun()
 
-                if st.button("🗑️ מחק", key=f"del_{coin_id}"):
-                    df = df[df['id'] != coin_id]; save_data(df); st.rerun()
+                st.divider()
+                if st.button("🗑️ מחק פריט", key=f"del_{coin_id}", use_container_width=True):
+                    full_df = load_data()
+                    full_df = full_df[full_df['id'] != coin_id]
+                    save_data(full_df); st.rerun()
 
-    # כפתור הוספה בסוף (גם הוא עם השדות החדשים)
+    # כפתור "+" בסוף
     last_col = len(filtered_df) % grid_size
     with cols[last_col]:
         with st.popover("➕"):
-            st.subheader("הוספה מהירה")
-            q_name = st.text_input("שם המטבע:")
-            q_price = st.text_input("מחיר:")
-            q_country = st.selectbox("מדינה:", ["ישראל", "ארה\"ב", "בריטניה", "אירופה", "אסיה", "עתיק"])
-            q_mat = st.selectbox("חומר:", ["נחושת", "כסף", "זהב", "ניקל", "ברונזה", "אלומיניום"])
-            q_files = st.file_uploader("תמונות:", accept_multiple_files=True)
-            if st.button("🚀 שמור"):
+            st.subheader("הוספת מטבע")
+            q_name = st.text_input("שם המטבע:", key="q_n")
+            q_price = st.text_input("מחיר:", key="q_p")
+            q_country = st.selectbox("מדינה:", COUNTRIES, key="q_c")
+            q_mat = st.selectbox("חומר:", MATERIALS, key="q_m")
+            q_year = st.text_input("שנה:", key="q_y")
+            q_files = st.file_uploader("תמונות:", accept_multiple_files=True, key="q_f")
+            if st.button("🚀 שמור", key="q_s"):
                 if q_name and q_files:
                     urls = [upload_to_cloud(f) for f in q_files]
-                    new_row = pd.DataFrame([{"id": str(int(time.time())), "name": q_name, "price": q_price, "country": q_country, "material": q_mat, "images": "|".join(urls)}])
+                    new_id = str(int(time.time()))
+                    new_row = pd.DataFrame([{"id": new_id, "name": q_name, "price": q_price, "country": q_country, "material": q_mat, "year": q_year, "images": "|".join(urls), "comments": ""}])
                     save_data(pd.concat([df, new_row], ignore_index=True)); st.rerun()
-        st.write("**הוסף מטבע**")
+        st.write("**הוסף חדש**")
 
 with tab2:
-    st.header("ממשק ניהול מלא")
-    st.write("כאן תוכל לראות את כל הטבלה ולבצע פעולות גורפות.")
-    st.dataframe(df)
+    total_val = pd.to_numeric(df['price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').sum()
+    st.subheader(f"💰 שווי כולל של כל האוסף: {total_val:,.0f} ₪")
+    st.dataframe(df[["name", "price", "country", "year", "material", "comments"]], use_container_width=True)
