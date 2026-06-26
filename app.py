@@ -7,10 +7,10 @@ import cloudinary.uploader
 from PIL import Image
 import io
 import time
-import google.generativeai as genai
 import json
 import re
 import base64
+import requests
 
 st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
@@ -24,11 +24,8 @@ try:
 except:
     CLOUDINARY_READY = False
 
-try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    GEMINI_READY = True
-except:
-    GEMINI_READY = False
+OPENROUTER_KEY = st.secrets.get("GEMINI_API_KEY", "")
+AI_READY = bool(OPENROUTER_KEY)
 
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1F8wYC4Q9r_kIgkFZMzrOWueVLYVaky60Vf7cfsjbs1M"
@@ -78,9 +75,9 @@ def save_data(df):
 def compress_image(file):
     file.seek(0)
     img = Image.open(file).convert('RGB')
-    img.thumbnail((800, 800), Image.LANCZOS)
+    img.thumbnail((600, 600), Image.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format='JPEG', quality=80)
+    img.save(buf, format='JPEG', quality=75)
     buf.seek(0)
     return buf
 
@@ -93,30 +90,46 @@ def upload_to_cloud(file):
         st.error(f"שגיאת העלאה: {e}")
         return None
 
-def image_to_part(file):
-    buf = compress_image(file)
-    data = base64.b64encode(buf.getvalue()).decode('utf-8')
-    return {"inline_data": {"mime_type": "image/jpeg", "data": data}}
-
 def identify_coin(front_file, back_file=None):
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = """אתה מומחה למטבעות. זהה את המטבע בתמונה/ות והחזר JSON בלבד (ללא טקסט נוסף, ללא ```):
-{
-  "name": "שם המטבע המלא בעברית",
-  "country": "אחת מ: ישראל / המנדט הבריטי / האימפריה העות'מאנית / ארה\"ב / בריטניה / רוסיה / ברית המועצות / אחר",
-  "year": "שנת הטביעה (מספר בלבד)",
-  "material": "אחד מ: כסף / זהב / נחושת / ניקל / ברונזה / אלומיניום / מתכת מעורבת",
-  "price": "מחיר משוער בשקלים (מספר בלבד)"
-}"""
-        parts = [prompt, image_to_part(front_file)]
+        def file_to_b64(f):
+            buf = compress_image(f)
+            return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+        content = [
+            {
+                "type": "text",
+                "text": """אתה מומחה למטבעות עתיקים. זהה את המטבע ותחזיר JSON בלבד ללא שום טקסט נוסף:
+{"name":"שם המטבע בעברית","country":"אחת מ: ישראל / המנדט הבריטי / האימפריה העות'מאנית / ארה\"ב / בריטניה / רוסיה / ברית המועצות / אחר","year":"שנה","material":"אחד מ: כסף / זהב / נחושת / ניקל / ברונזה / אלומיניום / מתכת מעורבת","price":"מחיר משוער בשקלים"}"""
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{file_to_b64(front_file)}"}
+            }
+        ]
+
         if back_file:
-            parts.append(image_to_part(back_file))
-        
-        response = model.generate_content(parts)
-        text = response.text.strip()
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{file_to_b64(back_file)}"}
+            })
+
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "google/gemini-2.0-flash-exp:free",
+                "messages": [{"role": "user", "content": content}]
+            },
+            timeout=30
+        )
+
+        result = response.json()
+        text = result['choices'][0]['message']['content'].strip()
         text = re.sub(r'```json|```', '', text).strip()
-        # מצא JSON בתוך הטקסט
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group())
@@ -140,17 +153,13 @@ st.markdown("""
     .chip-material { background-color: #fff8e1; color: #f57f17; }
     .chip-year { background-color: #fce4ec; color: #c62828; }
     div[data-testid="stPopover"] > button {
-        width: 100% !important;
-        aspect-ratio: 1/1 !important;
+        width: 100% !important; aspect-ratio: 1/1 !important;
         border: 2.5px dashed #81c784 !important;
         background: linear-gradient(135deg, #f1fdf4, #e8f5e9) !important;
-        color: #4caf50 !important;
-        font-size: 3em !important;
-        border-radius: 16px !important;
-        box-shadow: none !important;
+        color: #4caf50 !important; font-size: 3em !important;
+        border-radius: 16px !important; box-shadow: none !important;
     }
     .ai-box { background: linear-gradient(135deg, #e8f4fd, #f3e5f5); border-radius: 12px; padding: 12px; margin: 8px 0; border: 1px solid #ce93d8; direction: rtl; }
-    .ai-title { color: #7b1fa2; font-weight: 700; font-size: 0.9em; margin-bottom: 6px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -272,17 +281,17 @@ with tab1:
                     with st.popover("＋", use_container_width=True):
                         st.markdown("### ➕ הוספת מטבע חדש")
 
-                        if GEMINI_READY:
+                        if AI_READY:
                             st.markdown("#### 🤖 זיהוי אוטומטי עם AI")
                             col_f, col_b = st.columns(2)
                             with col_f:
-                                st.markdown("**פנים המטבע:**")
+                                st.markdown("**פנים:**")
                                 front_img = st.file_uploader("", type=["jpg","jpeg","png","webp"], key="ai_front")
                                 if front_img:
                                     front_img.seek(0)
                                     st.image(Image.open(front_img), use_container_width=True)
                             with col_b:
-                                st.markdown("**גב המטבע (אופציונלי):**")
+                                st.markdown("**גב (אופציונלי):**")
                                 back_img = st.file_uploader("", type=["jpg","jpeg","png","webp"], key="ai_back")
                                 if back_img:
                                     back_img.seek(0)
@@ -290,7 +299,7 @@ with tab1:
 
                             if front_img:
                                 if st.button("✨ זהה מטבע", use_container_width=True):
-                                    with st.spinner("🔍 מזהה מטבע..."):
+                                    with st.spinner("🔍 מזהה..."):
                                         front_img.seek(0)
                                         if back_img:
                                             back_img.seek(0)
@@ -299,14 +308,13 @@ with tab1:
                                             st.session_state['ai_result'] = result
                                             st.session_state['ai_front'] = front_img
                                             st.session_state['ai_back'] = back_img
-                                            st.success("✅ זוהה בהצלחה!")
-                                        
+                                            st.success("✅ זוהה!")
+
                             if 'ai_result' in st.session_state:
                                 r = st.session_state['ai_result']
                                 st.markdown(f"""
                                 <div class="ai-box">
-                                    <div class="ai-title">🤖 תוצאת זיהוי AI:</div>
-                                    <b>{r.get('name','')}</b><br>
+                                    <b>🤖 {r.get('name','')}</b><br>
                                     🌍 {r.get('country','')} | ⚗️ {r.get('material','')} | 📅 {r.get('year','')} | 💰 ~{r.get('price','')} ₪
                                 </div>
                                 """, unsafe_allow_html=True)
@@ -355,7 +363,7 @@ with tab1:
                                                 st.session_state.pop(key, None)
                                             st.rerun()
                                 else:
-                                    st.warning("נא להזין שם מטבע")
+                                    st.warning("נא להזין שם")
 
                     st.markdown("<p style='text-align:center; color:#4caf50; font-size:0.8em; font-weight:600; margin-top:4px;'>הוסף חדש</p>", unsafe_allow_html=True)
                 item_index += 1
