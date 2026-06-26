@@ -10,6 +10,7 @@ import time
 import google.generativeai as genai
 import json
 import re
+import base64
 
 st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
@@ -74,41 +75,54 @@ def save_data(df):
         st.error(f"שגיאת שמירה: {e}")
         return False
 
+def compress_image(file):
+    file.seek(0)
+    img = Image.open(file).convert('RGB')
+    img.thumbnail((800, 800), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=80)
+    buf.seek(0)
+    return buf
+
 def upload_to_cloud(file):
     try:
-        file.seek(0)
-        img = Image.open(file).convert('RGB')
-        w, h = img.size
-        s = min(w, h)
-        img = img.crop(((w-s)//2, (h-s)//2, (w+s)//2, (h+s)//2))
-        img = img.resize((800, 800), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=85)
-        buf.seek(0)
+        buf = compress_image(file)
         res = cloudinary.uploader.upload(buf.getvalue())
         return res['secure_url']
     except Exception as e:
         st.error(f"שגיאת העלאה: {e}")
         return None
 
-def identify_coin(file):
+def image_to_part(file):
+    buf = compress_image(file)
+    data = base64.b64encode(buf.getvalue()).decode('utf-8')
+    return {"inline_data": {"mime_type": "image/jpeg", "data": data}}
+
+def identify_coin(front_file, back_file=None):
     try:
-        file.seek(0)
-        img = Image.open(file).convert('RGB')
         model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = """זהה את המטבע בתמונה והחזר JSON בלבד (ללא טקסט נוסף) עם השדות הבאים:
+        prompt = """אתה מומחה למטבעות. זהה את המטבע בתמונה/ות והחזר JSON בלבד (ללא טקסט נוסף, ללא ```):
 {
-  "name": "שם המטבע (עברית)",
+  "name": "שם המטבע המלא בעברית",
   "country": "אחת מ: ישראל / המנדט הבריטי / האימפריה העות'מאנית / ארה\"ב / בריטניה / רוסיה / ברית המועצות / אחר",
   "year": "שנת הטביעה (מספר בלבד)",
   "material": "אחד מ: כסף / זהב / נחושת / ניקל / ברונזה / אלומיניום / מתכת מעורבת",
-  "price": "מחיר משוער בשקלים (מספר בלבד, ללא סימן)"
+  "price": "מחיר משוער בשקלים (מספר בלבד)"
 }"""
-        response = model.generate_content([prompt, img])
+        parts = [prompt, image_to_part(front_file)]
+        if back_file:
+            parts.append(image_to_part(back_file))
+        
+        response = model.generate_content(parts)
         text = response.text.strip()
         text = re.sub(r'```json|```', '', text).strip()
+        # מצא JSON בתוך הטקסט
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
         return json.loads(text)
     except Exception as e:
+        st.error(f"שגיאת זיהוי: {e}")
         return None
 
 st.markdown("""
@@ -258,27 +272,42 @@ with tab1:
                     with st.popover("＋", use_container_width=True):
                         st.markdown("### ➕ הוספת מטבע חדש")
 
-                        # העלאת תמונה לזיהוי AI
                         if GEMINI_READY:
-                            st.markdown("**🤖 זיהוי אוטומטי עם AI:**")
-                            ai_img = st.file_uploader("העלה תמונה לזיהוי:", type=["jpg","jpeg","png","webp"], key="ai_upload")
-                            if ai_img:
+                            st.markdown("#### 🤖 זיהוי אוטומטי עם AI")
+                            col_f, col_b = st.columns(2)
+                            with col_f:
+                                st.markdown("**פנים המטבע:**")
+                                front_img = st.file_uploader("", type=["jpg","jpeg","png","webp"], key="ai_front")
+                                if front_img:
+                                    front_img.seek(0)
+                                    st.image(Image.open(front_img), use_container_width=True)
+                            with col_b:
+                                st.markdown("**גב המטבע (אופציונלי):**")
+                                back_img = st.file_uploader("", type=["jpg","jpeg","png","webp"], key="ai_back")
+                                if back_img:
+                                    back_img.seek(0)
+                                    st.image(Image.open(back_img), use_container_width=True)
+
+                            if front_img:
                                 if st.button("✨ זהה מטבע", use_container_width=True):
                                     with st.spinner("🔍 מזהה מטבע..."):
-                                        result = identify_coin(ai_img)
+                                        front_img.seek(0)
+                                        if back_img:
+                                            back_img.seek(0)
+                                        result = identify_coin(front_img, back_img if back_img else None)
                                         if result:
                                             st.session_state['ai_result'] = result
-                                            st.session_state['ai_img'] = ai_img
-                                            st.success("✅ זוהה!")
-                                        else:
-                                            st.error("לא הצלחתי לזהות, מלא ידנית")
-
+                                            st.session_state['ai_front'] = front_img
+                                            st.session_state['ai_back'] = back_img
+                                            st.success("✅ זוהה בהצלחה!")
+                                        
                             if 'ai_result' in st.session_state:
                                 r = st.session_state['ai_result']
                                 st.markdown(f"""
                                 <div class="ai-box">
                                     <div class="ai-title">🤖 תוצאת זיהוי AI:</div>
-                                    <b>{r.get('name','')}</b> | {r.get('country','')} | {r.get('year','')} | {r.get('material','')} | ~{r.get('price','')} ₪
+                                    <b>{r.get('name','')}</b><br>
+                                    🌍 {r.get('country','')} | ⚗️ {r.get('material','')} | 📅 {r.get('year','')} | 💰 ~{r.get('price','')} ₪
                                 </div>
                                 """, unsafe_allow_html=True)
                             st.divider()
@@ -287,29 +316,28 @@ with tab1:
                             ai = st.session_state.get('ai_result', {})
                             qn = st.text_input("שם המטבע:", value=ai.get('name', ''))
                             qp = st.text_input("מחיר (₪):", value=str(ai.get('price', '')))
-
                             default_country = ai.get('country', COUNTRIES[0])
                             if default_country not in COUNTRIES:
                                 default_country = COUNTRIES[0]
                             qc = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(default_country))
-
                             default_material = ai.get('material', MATERIALS[0])
                             if default_material not in MATERIALS:
                                 default_material = MATERIALS[0]
                             qm = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(default_material))
-
                             qy = st.text_input("שנה:", value=str(ai.get('year', '')))
-                            qf = st.file_uploader("תמונות:", accept_multiple_files=True, type=["jpg","jpeg","png","webp"])
+                            qf = st.file_uploader("תמונות נוספות:", accept_multiple_files=True, type=["jpg","jpeg","png","webp"])
 
                             if st.form_submit_button("🚀 הוסף מטבע", use_container_width=True):
                                 if qn:
                                     with st.spinner('מעלה...'):
                                         urls = []
-                                        # העלה את תמונת ה-AI אם קיימת
-                                        if 'ai_img' in st.session_state:
-                                            url = upload_to_cloud(st.session_state['ai_img'])
-                                            if url:
-                                                urls.append(url)
+                                        for key in ['ai_front', 'ai_back']:
+                                            f = st.session_state.get(key)
+                                            if f:
+                                                f.seek(0)
+                                                url = upload_to_cloud(f)
+                                                if url:
+                                                    urls.append(url)
                                         for f in (qf or []):
                                             url = upload_to_cloud(f)
                                             if url:
@@ -323,8 +351,8 @@ with tab1:
                                             "comments": ""
                                         }])
                                         if save_data(pd.concat([df, new_row], ignore_index=True)):
-                                            st.session_state.pop('ai_result', None)
-                                            st.session_state.pop('ai_img', None)
+                                            for key in ['ai_result','ai_front','ai_back']:
+                                                st.session_state.pop(key, None)
                                             st.rerun()
                                 else:
                                     st.warning("נא להזין שם מטבע")
