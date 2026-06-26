@@ -4,3 +4,4 @@ Pillow
 cloudinary
 gspread
 google-auth
+google-generativeai
