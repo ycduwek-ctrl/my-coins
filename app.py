@@ -7,6 +7,9 @@ import cloudinary.uploader
 from PIL import Image
 import io
 import time
+import google.generativeai as genai
+import json
+import re
 
 st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
@@ -19,6 +22,12 @@ try:
     CLOUDINARY_READY = True
 except:
     CLOUDINARY_READY = False
+
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    GEMINI_READY = True
+except:
+    GEMINI_READY = False
 
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1F8wYC4Q9r_kIgkFZMzrOWueVLYVaky60Vf7cfsjbs1M"
@@ -82,6 +91,26 @@ def upload_to_cloud(file):
         st.error(f"שגיאת העלאה: {e}")
         return None
 
+def identify_coin(file):
+    try:
+        file.seek(0)
+        img = Image.open(file).convert('RGB')
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = """זהה את המטבע בתמונה והחזר JSON בלבד (ללא טקסט נוסף) עם השדות הבאים:
+{
+  "name": "שם המטבע (עברית)",
+  "country": "אחת מ: ישראל / המנדט הבריטי / האימפריה העות'מאנית / ארה\"ב / בריטניה / רוסיה / ברית המועצות / אחר",
+  "year": "שנת הטביעה (מספר בלבד)",
+  "material": "אחד מ: כסף / זהב / נחושת / ניקל / ברונזה / אלומיניום / מתכת מעורבת",
+  "price": "מחיר משוער בשקלים (מספר בלבד, ללא סימן)"
+}"""
+        response = model.generate_content([prompt, img])
+        text = response.text.strip()
+        text = re.sub(r'```json|```', '', text).strip()
+        return json.loads(text)
+    except Exception as e:
+        return None
+
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;700&display=swap');
@@ -91,8 +120,6 @@ st.markdown("""
     .gallery-item { flex: 0 0 100%; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; }
     .gallery-item img { width: 100%; height: 100%; object-fit: cover; }
     .coin-info { padding: 10px 12px 6px 12px; direction: rtl; }
-    .coin-name { font-size: 1em; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
-    .coin-price { color: #2e7d32; font-weight: 700; font-size: 1.1em; }
     .tags-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; direction: rtl; }
     .chip { padding: 3px 10px; border-radius: 20px; font-size: 0.72em; font-weight: 600; }
     .chip-country { background-color: #e8f5e9; color: #2e7d32; }
@@ -108,6 +135,8 @@ st.markdown("""
         border-radius: 16px !important;
         box-shadow: none !important;
     }
+    .ai-box { background: linear-gradient(135deg, #e8f4fd, #f3e5f5); border-radius: 12px; padding: 12px; margin: 8px 0; border: 1px solid #ce93d8; direction: rtl; }
+    .ai-title { color: #7b1fa2; font-weight: 700; font-size: 0.9em; margin-bottom: 6px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,8 +187,8 @@ with tab1:
                     st.markdown(f"""
                     <div class="coin-info">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span class="coin-name">{coin['name']}</span>
-                            <span class="coin-price">{coin['price']} ₪</span>
+                            <span style="font-weight:700; color:#1a1a1a;">{coin['name']}</span>
+                            <span style="color:#2e7d32; font-weight:700;">{coin['price']} ₪</span>
                         </div>
                         <div class="tags-row">
                             <span class="chip chip-country">🌍 {coin['country']}</span>
@@ -173,13 +202,10 @@ with tab1:
                         coin_id = str(coin['id'])
                         e_n = st.text_input("שם:", value=str(coin["name"]), key=f"n_{coin_id}")
                         e_p = st.text_input("מחיר (₪):", value=str(coin["price"]), key=f"p_{coin_id}")
-
                         cur_country = coin['country'] if coin['country'] in COUNTRIES else COUNTRIES[0]
                         e_c = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(cur_country), key=f"c_{coin_id}")
-
                         cur_material = coin['material'] if coin['material'] in MATERIALS else MATERIALS[0]
                         e_m = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(cur_material), key=f"m_{coin_id}")
-
                         e_y = st.text_input("שנה:", value=str(coin["year"]), key=f"y_{coin_id}")
 
                         cur_imgs = [u for u in str(coin["images"]).split("|") if u.startswith("http")]
@@ -231,17 +257,59 @@ with tab1:
                 with cols[col_i]:
                     with st.popover("＋", use_container_width=True):
                         st.markdown("### ➕ הוספת מטבע חדש")
+
+                        # העלאת תמונה לזיהוי AI
+                        if GEMINI_READY:
+                            st.markdown("**🤖 זיהוי אוטומטי עם AI:**")
+                            ai_img = st.file_uploader("העלה תמונה לזיהוי:", type=["jpg","jpeg","png","webp"], key="ai_upload")
+                            if ai_img:
+                                if st.button("✨ זהה מטבע", use_container_width=True):
+                                    with st.spinner("🔍 מזהה מטבע..."):
+                                        result = identify_coin(ai_img)
+                                        if result:
+                                            st.session_state['ai_result'] = result
+                                            st.session_state['ai_img'] = ai_img
+                                            st.success("✅ זוהה!")
+                                        else:
+                                            st.error("לא הצלחתי לזהות, מלא ידנית")
+
+                            if 'ai_result' in st.session_state:
+                                r = st.session_state['ai_result']
+                                st.markdown(f"""
+                                <div class="ai-box">
+                                    <div class="ai-title">🤖 תוצאת זיהוי AI:</div>
+                                    <b>{r.get('name','')}</b> | {r.get('country','')} | {r.get('year','')} | {r.get('material','')} | ~{r.get('price','')} ₪
+                                </div>
+                                """, unsafe_allow_html=True)
+                            st.divider()
+
                         with st.form("add_new", clear_on_submit=True):
-                            qn = st.text_input("שם המטבע:")
-                            qp = st.text_input("מחיר (₪):")
-                            qc = st.selectbox("מדינה:", COUNTRIES)
-                            qm = st.selectbox("חומר:", MATERIALS)
-                            qy = st.text_input("שנה:")
+                            ai = st.session_state.get('ai_result', {})
+                            qn = st.text_input("שם המטבע:", value=ai.get('name', ''))
+                            qp = st.text_input("מחיר (₪):", value=str(ai.get('price', '')))
+
+                            default_country = ai.get('country', COUNTRIES[0])
+                            if default_country not in COUNTRIES:
+                                default_country = COUNTRIES[0]
+                            qc = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(default_country))
+
+                            default_material = ai.get('material', MATERIALS[0])
+                            if default_material not in MATERIALS:
+                                default_material = MATERIALS[0]
+                            qm = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(default_material))
+
+                            qy = st.text_input("שנה:", value=str(ai.get('year', '')))
                             qf = st.file_uploader("תמונות:", accept_multiple_files=True, type=["jpg","jpeg","png","webp"])
+
                             if st.form_submit_button("🚀 הוסף מטבע", use_container_width=True):
                                 if qn:
                                     with st.spinner('מעלה...'):
                                         urls = []
+                                        # העלה את תמונת ה-AI אם קיימת
+                                        if 'ai_img' in st.session_state:
+                                            url = upload_to_cloud(st.session_state['ai_img'])
+                                            if url:
+                                                urls.append(url)
                                         for f in (qf or []):
                                             url = upload_to_cloud(f)
                                             if url:
@@ -255,9 +323,12 @@ with tab1:
                                             "comments": ""
                                         }])
                                         if save_data(pd.concat([df, new_row], ignore_index=True)):
+                                            st.session_state.pop('ai_result', None)
+                                            st.session_state.pop('ai_img', None)
                                             st.rerun()
                                 else:
                                     st.warning("נא להזין שם מטבע")
+
                     st.markdown("<p style='text-align:center; color:#4caf50; font-size:0.8em; font-weight:600; margin-top:4px;'>הוסף חדש</p>", unsafe_allow_html=True)
                 item_index += 1
 
