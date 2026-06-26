@@ -121,7 +121,7 @@ def identify_coin(front_file, back_file=None):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
+                "model": "qwen/qwen-2.5-vl-7b-instruct:free",
                 "messages": [{"role": "user", "content": content}]
             },
             timeout=30
