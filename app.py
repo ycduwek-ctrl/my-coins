@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 import cloudinary
 import cloudinary.uploader
-import os
 from PIL import Image
 import io
 import time
@@ -17,51 +17,42 @@ try:
         api_key = st.secrets["CLOUDINARY_API_KEY"],
         api_secret = st.secrets["CLOUDINARY_API_SECRET"]
     )
-    READY = True
+    CLOUDINARY_READY = True
 except:
-    READY = False
+    CLOUDINARY_READY = False
 
-# עיצוב CSS - גלריה, צבעים וכפתור הוספה ירוק
+# הגדרת Google Sheets
+def get_data():
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        # קריאה עם ttl=0 כדי למנוע זיכרון ישן
+        return conn.read(worksheet="coins", ttl=0).astype(str)
+    except Exception as e:
+        return None
+
+def save_data(df):
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        conn.update(worksheet="coins", data=df)
+        return True
+    except:
+        return False
+
+# עיצוב CSS - מראה אינסטגרם + גלילה חלקה
 st.markdown("""
 <style>
-    .carousel-wrapper { position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; border-radius: 12px; background: #f8f9fa; }
-    .scroll-container { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; gap: 0px; scrollbar-width: none; width: 100%; height: 100%; }
-    .scroll-container::-webkit-scrollbar { display: none; }
-    .scroll-item { flex: 0 0 100%; scroll-snap-align: center; aspect-ratio: 1 / 1; }
-    .scroll-item img { width: 100%; height: 100%; object-fit: cover; }
-    .nav-arrow { position: absolute; top: 0; bottom: 0; width: 40px; background: rgba(0,0,0,0.05); color: white; border: none; font-size: 30px; cursor: pointer; z-index: 5; }
-    .nav-arrow:hover { background: rgba(0,0,0,0.4); }
-    .prev-arrow { left: 0; } .next-arrow { right: 0; }
-
-    .tag-container { display: flex; align-items: center; gap: 5px; margin-top: 8px; direction: rtl; flex-wrap: nowrap; overflow-x: auto; }
-    .coin-name { font-weight: bold; border-left: 2px solid #ddd; padding-left: 8px; margin-left: 5px; white-space: nowrap; }
-    .price-green { color: #2e7d32; font-weight: bold; margin-left: 10px; white-space: nowrap; }
-    
-    .chip { padding: 4px 10px; border-radius: 15px; font-size: 0.75em; white-space: nowrap; border: 1px solid rgba(0,0,0,0.05); }
+    .gallery-container { width: 100%; aspect-ratio: 1/1; overflow-x: auto; display: flex; scroll-snap-type: x mandatory; border-radius: 12px; background-color: #f8f9fa; }
+    .gallery-container::-webkit-scrollbar { height: 4px; }
+    .gallery-item { flex: 0 0 100%; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; }
+    .gallery-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+    .tag-container { display: flex; align-items: center; gap: 5px; margin-top: 8px; direction: rtl; }
+    .price-green { color: #2e7d32; font-weight: bold; margin-left: 10px; }
+    .chip { padding: 4px 10px; border-radius: 15px; font-size: 0.75em; border: 1px solid rgba(0,0,0,0.05); }
     .chip-country { background-color: #e8f5e9; color: #2e7d32; } 
     .chip-material { background-color: #fff9c4; color: #856404; } 
     .chip-year { background-color: #fce4ec; color: #880e4f; }
-
-    div[data-testid="stPopover"] { width: 100%; display: flex; justify-content: center; }
-    div[data-testid="stPopover"] > button {
-        width: 100% !important;
-        aspect-ratio: 1 / 1 !important;
-        height: auto !important;
-        border-radius: 15px !important;
-        border: 2px solid #2e7d32 !important;
-        background-color: #f1fdf4 !important;
-        color: #2e7d32 !important;
-        font-size: 60px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transition: 0.3s !important;
-        padding: 0 !important;
-    }
-    div[data-testid="stPopover"] > button:hover { background-color: #e3f9e9 !important; transform: scale(1.02); }
-    div[data-testid="stPopover"] svg { display: none !important; }
-
-    .add-label { text-align: center; color: #2e7d32; font-weight: bold; margin-top: -5px; width: 100%; }
+    div[data-testid="stPopover"] > button { width: 100% !important; aspect-ratio: 1 / 1 !important; border: 2px solid #2e7d32 !important; background-color: #f1fdf4 !important; color: #2e7d32 !important; font-size: 60px !important; border-radius: 15px !important; }
+    .add-label { text-align: center; color: #2e7d32; font-weight: bold; margin-top: -5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,39 +66,30 @@ def upload_to_cloud(file):
     res = cloudinary.uploader.upload(buf.getvalue())
     return res['secure_url']
 
-DB_FILE = 'final_coins_db_v12.csv'
-COLUMNS = ["id", "name", "price", "country", "material", "year", "images", "comments"]
-
-def load_data():
-    if os.path.exists(DB_FILE):
-        try: return pd.read_csv(DB_FILE, dtype=str)
-        except: pass
-    return pd.DataFrame(columns=COLUMNS)
-
-def save_data(df):
-    df.to_csv(DB_FILE, index=False)
-
-if not READY:
-    st.error("⚠️ חסרים פרטי Cloudinary.")
+# --- טעינת נתונים ---
+if not CLOUDINARY_READY:
+    st.error("❌ שגיאה: פרטי Cloudinary לא הוגדרו ב-Secrets")
     st.stop()
 
-df = load_data()
+df = get_data()
+
+if df is None:
+    st.warning("⚠️ לא מצליח להתחבר לגוגל שיטס. וודא שהקובץ משותף כ-'Anyone with link' וששם הלשונית הוא 'coins'.")
+    st.stop()
 
 # --- תפריט צד ---
 st.sidebar.title("🔍 סינון")
 COUNTRIES = ["ישראל", "המנדט הבריטי", "האימפריה העות'מאנית", "ארה\"ב", "בריטניה", "רוסיה", "ברית המועצות", "אחר"]
-MATERIALS = ["כסף", "זהב", "נחושת", "ניקל", "ברונזה", "אלומיניום", "פלדה", "מתכת מעורבת"]
+MATERIALS = ["כסף", "זהב", "נחושת", "ניקל", "ברונזה", "אלומיניום", "מתכת מעורבת"]
 
 f_country = st.sidebar.multiselect("מדינה:", COUNTRIES)
 f_material = st.sidebar.multiselect("חומר:", MATERIALS)
 f_year = st.sidebar.text_input("חיפוש לפי שנה:")
-
-st.sidebar.divider()
 grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 
 if not df.empty:
-    csv_data = df.to_csv(index=False).encode('utf-8-sig')
-    st.sidebar.download_button("📥 הורד גיבוי (CSV)", csv_data, "coins_backup.csv", "text/csv", use_container_width=True)
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.sidebar.download_button("📥 הורד גיבוי (CSV)", csv, "coins_backup.csv", use_container_width=True)
 
 # לוגיקת סינון
 filtered_df = df.copy()
@@ -115,78 +97,65 @@ if f_country: filtered_df = filtered_df[filtered_df['country'].isin(f_country)]
 if f_material: filtered_df = filtered_df[filtered_df['material'].isin(f_material)]
 if f_year: filtered_df = filtered_df[filtered_df['year'].str.contains(f_year, na=False)]
 
-# --- ממשק ראשי ---
 tab1, tab2 = st.tabs(["🪙 הגלריה", "📜 רשימה וסיכום"])
 
 with tab1:
-    cols = st.columns(grid_size)
-    
-    for index, row in filtered_df.iterrows():
-        col_idx = index % grid_size
-        coin_id = str(row['id'])
-        with cols[col_idx]:
-            img_list = str(row["images"]).split("|")
-            images_html = "".join([f'<div class="scroll-item"><img src="{url}"></div>' for url in img_list])
-            
-            st.markdown(f"""
-            <div class="carousel-wrapper">
-                <button class="nav-arrow prev-arrow" onclick="this.nextElementSibling.scrollBy({{left: -this.nextElementSibling.offsetWidth, behavior: 'smooth'}})">‹</button>
-                <div class="scroll-container">{images_html}</div>
-                <button class="nav-arrow next-arrow" onclick="this.previousElementSibling.scrollBy({{left: this.previousElementSibling.offsetWidth, behavior: 'smooth'}})">›</button>
-            </div>
-            <div class="tag-container">
-                <span class="coin-name">{row['name']}</span>
-                <span class="price-green">{row['price']} ₪</span>
-                <span class="chip chip-country">{row['country']}</span>
-                <span class="chip chip-material">{row['material']}</span>
-                <span class="chip chip-year">{row['year']}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-            with st.expander("🔍 ניהול ופרטים"):
-                e_name = st.text_input("שם:", value=str(row["name"]), key=f"en_{coin_id}")
-                e_price = st.text_input("מחיר:", value=str(row["price"]), key=f"ep_{coin_id}")
-                e_country = st.selectbox("מדינה:", COUNTRIES, index=COUNTRIES.index(row['country']) if row['country'] in COUNTRIES else 0, key=f"ec_{coin_id}")
-                e_mat = st.selectbox("חומר:", MATERIALS, index=MATERIALS.index(row['material']) if row['material'] in MATERIALS else 0, key=f"em_{coin_id}")
-                e_year = st.text_input("שנה:", value=str(row["year"]), key=f"ey_{coin_id}")
+    if filtered_df.empty or (len(filtered_df) == 1 and filtered_df.iloc[0].isnull().all()):
+        st.info("הקטלוג ריק. השתמש בכפתור ה-"+" למטה כדי להוסיף מטבע.")
+    else:
+        cols = st.columns(grid_size)
+        for index, row in filtered_df.iterrows():
+            with cols[index % grid_size]:
+                img_list = str(row["images"]).split("|")
+                items_html = "".join([f'<div class="gallery-item"><img src="{url}"></div>' for url in img_list])
+                st.markdown(f'<div class="gallery-container">{items_html}</div>', unsafe_allow_html=True)
                 
-                if st.button("💾 שמור שינויים", key=f"sv_{coin_id}"):
-                    full_df = load_data()
-                    idx_match = full_df[full_df['id'] == coin_id].index
-                    if not idx_match.empty:
-                        # תיקון ה-NameError: החלפת em ב-e_mat
-                        full_df.at[idx_match[0], 'name'] = e_name
-                        full_df.at[idx_match[0], 'price'] = e_price
-                        full_df.at[idx_match[0], 'country'] = e_country
-                        full_df.at[idx_match[0], 'material'] = e_mat
-                        full_df.at[idx_match[0], 'year'] = e_year
-                        save_data(full_df)
-                        st.rerun()
+                st.markdown(f"""
+                <div class="tag-container">
+                    <span style="font-weight:bold;">{row['name']}</span>
+                    <span class="price-green">{row['price']} ₪</span>
+                    <span class="chip chip-country">{row['country']}</span>
+                    <span class="chip chip-material">{row['material']}</span>
+                    <span class="chip chip-year">{row['year']}</span>
+                </div>
+                """, unsafe_allow_html=True)
 
-                if st.button("🗑️ מחק", key=f"del_{coin_id}", use_container_width=True):
-                    df = df[df['id'] != coin_id]; save_data(df); st.rerun()
+                with st.expander("🔍 ניהול"):
+                    coin_id = str(row['id'])
+                    e_n = st.text_input("שם:", value=str(row["name"]), key=f"n_{coin_id}")
+                    e_p = st.text_input("מחיר:", value=str(row["price"]), key=f"p_{coin_id}")
+                    
+                    if st.button("💾 שמור שינויים", key=f"s_{coin_id}"):
+                        current_df = get_data()
+                        idx = current_df[current_df['id'] == coin_id].index[0]
+                        current_df.at[idx, 'name'], current_df.at[idx, 'price'] = e_n, e_p
+                        if save_data(current_df): st.rerun()
 
-    # כפתור הוספה
-    last_col_idx = len(filtered_df) % grid_size
-    with cols[last_col_idx]:
+                    if st.button("🗑️ מחק", key=f"d_{coin_id}"):
+                        current_df = get_data()
+                        current_df = current_df[current_df['id'] != coin_id]
+                        if save_data(current_df): st.rerun()
+
+    # כפתור הוספה בסוף הגלריה
+    last_col = len(filtered_df) % grid_size
+    with st.columns(grid_size)[last_col]:
         with st.popover("＋"):
-            st.subheader("הוספת מטבע חדש")
-            q_n = st.text_input("שם המטבע:", key="q_n")
-            q_p = st.text_input("מחיר:", key="q_p")
-            q_c = st.selectbox("מדינה:", COUNTRIES, key="q_c")
-            q_m = st.selectbox("חומר:", MATERIALS, key="q_m")
-            q_y = st.text_input("שנה:", key="q_y")
-            q_f = st.file_uploader("תמונות:", accept_multiple_files=True, key="q_f")
-            if st.button("🚀 שמור", key="q_s", use_container_width=True):
-                if q_n and q_f:
-                    with st.spinner('מעלה...'):
-                        urls = [upload_to_cloud(f) for f in q_f]
-                        new_row = pd.DataFrame([{"id": str(int(time.time())), "name": q_n, "price": q_p, "country": q_c, "material": q_m, "year": q_y, "images": "|".join(urls), "comments": ""}])
-                        save_data(pd.concat([df, new_row], ignore_index=True))
-                        st.rerun()
-        st.markdown("<p class='add-label'>הוספה חדש</p>", unsafe_allow_html=True)
+            with st.form("add_new", clear_on_submit=True):
+                st.subheader("הוספה מהירה")
+                qn, qp = st.text_input("שם:"), st.text_input("מחיר:")
+                qc = st.selectbox("מדינה:", COUNTRIES)
+                qm = st.selectbox("חומר:", MATERIALS)
+                qy = st.text_input("שנה:")
+                qf = st.file_uploader("תמונות:", accept_multiple_files=True)
+                if st.form_submit_button("🚀 שמור לענן"):
+                    if qn and qf:
+                        with st.spinner('מעלה לענן...'):
+                            urls = [upload_to_cloud(f) for f in qf]
+                            new_row = pd.DataFrame([{"id": str(int(time.time())), "name": qn, "price": qp, "country": qc, "material": qm, "year": qy, "images": "|".join(urls), "comments": ""}])
+                            if save_data(pd.concat([df, new_row], ignore_index=True)): st.rerun()
+        st.write("<p class='add-label'>הוסף חדש</p>", unsafe_allow_html=True)
 
 with tab2:
     total_val = pd.to_numeric(df['price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').sum()
     st.subheader(f"💰 שווי כולל: {total_val:,.0f} ₪")
-    st.dataframe(df[["name", "price", "country", "year", "material"]], use_container_width=True)
+    st.dataframe(df[["name", "price", "country", "year"]], use_container_width=True)
