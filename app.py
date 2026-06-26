@@ -135,7 +135,8 @@ def identify_coin(front_file, back_file=None):
             return json.loads(match.group())
         return json.loads(text)
     except Exception as e:
-        st.error(f"שגיאת זיהוי: {e}")
+        result_raw = response.json()
+        st.error(f"תשובת API: {result_raw}")
         return None
 
 st.markdown("""
