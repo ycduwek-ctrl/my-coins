@@ -10,7 +10,7 @@ import time
 # --- הגדרות דף ---
 st.set_page_config(page_title="Coin Index Pro", layout="wide")
 
-# 1. חיבור ל-Cloudinary (לתמונות)
+# הגדרת Cloudinary
 try:
     cloudinary.config(
         cloud_name = st.secrets["CLOUDINARY_CLOUD_NAME"],
@@ -21,32 +21,36 @@ try:
 except:
     CLOUDINARY_READY = False
 
-# 2. חיבור לגוגל שיטס (לנתונים)
-try:
-    # ttl=0 מוודא שהאתר תמיד יקרא נתונים טריים מגוגל ולא מהזיכרון שלו
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    SHEET_READY = True
-except:
-    SHEET_READY = False
+# חיבור לגוגל שיטס עם מנגנון הגנה
+def get_connection():
+    try:
+        return st.connection("gsheets", type=GSheetsConnection)
+    except:
+        return None
 
-# --- פונקציות ליבה ---
 def load_data():
-    # קריאה ישירה מגוגל שיטס בלשונית coins
-    return conn.read(worksheet="coins", ttl=0).astype(str)
+    conn = get_connection()
+    if conn:
+        try:
+            # מנסה לקרוא מגוגל
+            return conn.read(worksheet="coins", ttl=0).astype(str)
+        except Exception as e:
+            st.warning(f"⚠️ לא מצליח לקרוא מגוגל שיטס. וודא שהשיתוף פתוח ושם הגיליון הוא 'coins'.")
+    
+    # אם נכשל - טוען מקובץ מקומי זמני כדי שהאתר לא יקרוס
+    if os.path.exists('backup_coins.csv'):
+        return pd.read_csv('backup_coins.csv', dtype=str)
+    return pd.DataFrame(columns=["id", "name", "price", "country", "material", "year", "images", "comments"])
 
 def save_data(df):
-    # עדכון ישיר של גוגל שיטס
-    conn.update(worksheet="coins", data=df)
-
-def upload_to_cloud(file):
-    img = Image.open(file).convert('RGB')
-    w, h = img.size
-    s = min(w, h)
-    img = img.crop(((w-s)/2, (h-s)/2, (w+s)/2, (h+s)/2))
-    buf = io.BytesIO()
-    img.save(buf, format='JPEG', quality=85)
-    res = cloudinary.uploader.upload(buf.getvalue())
-    return res['secure_url']
+    conn = get_connection()
+    df.to_csv('backup_coins.csv', index=False) # תמיד שומר גיבוי מקומי
+    if conn:
+        try:
+            conn.update(worksheet="coins", data=df)
+            st.success("✅ נשמר בהצלחה בגוגל שיטס!")
+        except:
+            st.error("❌ המידע נשמר זמנית בלבד. יש בעיית הרשאה בגוגל שיטס.")
 
 # --- עיצוב ---
 st.markdown("""
@@ -64,25 +68,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- בדיקת תקינות חיבורים ---
-if not CLOUDINARY_READY or not SHEET_READY:
-    st.error("⚠️ שגיאת חיבור! וודא שהזנת Secrets תקינים עבור Cloudinary וגוגל שיטס.")
-    st.stop()
+import os
 
-# טעינת הנתונים מהענן
-df = load_data()
+def upload_to_cloud(file):
+    img = Image.open(file).convert('RGB')
+    w, h = img.size
+    s = min(w, h)
+    img = img.crop(((w-s)/2, (h-s)/2, (w+s)/2, (h+s)/2))
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=85)
+    res = cloudinary.uploader.upload(buf.getvalue())
+    return res['secure_url']
 
 # --- ממשק משתמש ---
+if not CLOUDINARY_READY:
+    st.error("⚠️ חסרים פרטי Cloudinary ב-Secrets.")
+    st.stop()
+
+df = load_data()
+
 st.sidebar.title("🔍 סינון")
-grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 COUNTRIES = ["ישראל", "המנדט הבריטי", "האימפריה העות'מאנית", "ארה\"ב", "בריטניה", "רוסיה", "ברית המועצות", "אחר"]
 MATERIALS = ["כסף", "זהב", "נחושת", "ניקל", "ברונזה", "אלומיניום", "מתכת מעורבת"]
+grid_size = st.sidebar.slider("מטבעות בשורה", 1, 4, 2)
 
 tab1, tab2 = st.tabs(["🪙 הגלריה", "📜 רשימה וסיכום"])
 
 with tab1:
     if df.empty or (len(df) == 1 and df.iloc[0].isnull().all()):
-        st.info("הקטלוג ריק בגוגל שיטס.")
+        st.info("הקטלוג ריק.")
     else:
         cols = st.columns(grid_size)
         for index, row in df.iterrows():
@@ -107,7 +121,6 @@ with tab1:
                     e_p = st.text_input("מחיר:", value=str(row["price"]), key=f"p_{coin_id}")
                     
                     if st.button("💾 שמור שינויים", key=f"s_{coin_id}"):
-                        # טעינה טרייה, עדכון ושמירה לגוגל
                         current_df = load_data()
                         current_df.loc[current_df['id'] == coin_id, ['name', 'price']] = [e_n, e_p]
                         save_data(current_df)
@@ -119,11 +132,11 @@ with tab1:
                         save_data(current_df)
                         st.rerun()
 
-    # כפתור הוספה
     last_col = len(df) % grid_size
     with cols[last_col]:
         with st.popover("＋"):
             with st.form("add_new", clear_on_submit=True):
+                st.subheader("הוספה חדשה")
                 qn, qp = st.text_input("שם:"), st.text_input("מחיר:")
                 qc = st.selectbox("מדינה:", COUNTRIES)
                 qm = st.selectbox("חומר:", MATERIALS)
@@ -135,6 +148,7 @@ with tab1:
                         new_row = pd.DataFrame([{"id": str(int(time.time())), "name": qn, "price": qp, "country": qc, "material": qm, "year": qy, "images": "|".join(urls), "comments": ""}])
                         save_data(pd.concat([df, new_row], ignore_index=True))
                         st.rerun()
+        st.write("<p style='text-align:center; color:#2e7d32; font-weight:bold;'>הוסף חדש</p>", unsafe_allow_html=True)
 
 with tab2:
     st.subheader("📊 סיכום אוסף")
