@@ -1,5 +1,6 @@
 streamlit
 pandas
 Pillow
-st-gsheets-connection
 cloudinary
+gspread
+google-auth
