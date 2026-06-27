@@ -121,7 +121,7 @@ def identify_coin(front_file, back_file=None):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "google/gemma-4-31b-it:free",
+                "model": "openrouter/auto",
                 "messages": [{"role": "user", "content": content}]
             },
             timeout=30
