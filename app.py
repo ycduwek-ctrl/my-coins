@@ -123,7 +123,7 @@ def identify_coin(front_bytes, back_bytes=None):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "meta-llama/llama-4-maverick:free",
+                "model": "openrouter/auto",
                 "messages": [{"role": "user", "content": content}]
             },
             timeout=30
