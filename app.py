@@ -72,30 +72,32 @@ def save_data(df):
         st.error(f"שגיאת שמירה: {e}")
         return False
 
-def compress_image(file):
+def compress_image_bytes(file):
     file.seek(0)
     img = Image.open(file).convert('RGB')
     img.thumbnail((600, 600), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format='JPEG', quality=75)
-    buf.seek(0)
-    return buf
+    return buf.getvalue()
 
 def upload_to_cloud(file):
     try:
-        buf = compress_image(file)
-        res = cloudinary.uploader.upload(buf.getvalue())
+        data = compress_image_bytes(file)
+        res = cloudinary.uploader.upload(data)
         return res['secure_url']
     except Exception as e:
         st.error(f"שגיאת העלאה: {e}")
         return None
 
-def identify_coin(front_file, back_file=None):
+def upload_bytes_to_cloud(data):
     try:
-        def file_to_b64(f):
-            buf = compress_image(f)
-            return base64.b64encode(buf.getvalue()).decode('utf-8')
+        res = cloudinary.uploader.upload(data)
+        return res['secure_url']
+    except Exception as e:
+        return None
 
+def identify_coin(front_bytes, back_bytes=None):
+    try:
         content = [
             {
                 "type": "text",
@@ -104,14 +106,14 @@ def identify_coin(front_file, back_file=None):
             },
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{file_to_b64(front_file)}"}
+                "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(front_bytes).decode()}"}
             }
         ]
 
-        if back_file:
+        if back_bytes:
             content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{file_to_b64(back_file)}"}
+                "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(back_bytes).decode()}"}
             })
 
         response = requests.post(
@@ -121,13 +123,16 @@ def identify_coin(front_file, back_file=None):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "openrouter/auto",
+                "model": "meta-llama/llama-4-maverick:free",
                 "messages": [{"role": "user", "content": content}]
             },
             timeout=30
         )
 
         result = response.json()
+        if 'error' in result:
+            st.error(f"שגיאת API: {result['error'].get('message', result['error'])}")
+            return None
         text = result['choices'][0]['message']['content'].strip()
         text = re.sub(r'```json|```', '', text).strip()
         match = re.search(r'\{.*\}', text, re.DOTALL)
@@ -135,8 +140,7 @@ def identify_coin(front_file, back_file=None):
             return json.loads(match.group())
         return json.loads(text)
     except Exception as e:
-        result_raw = response.json()
-        st.error(f"תשובת API: {result_raw}")
+        st.error(f"שגיאת זיהוי: {e}")
         return None
 
 st.markdown("""
@@ -290,25 +294,24 @@ with tab1:
                                 front_img = st.file_uploader("", type=["jpg","jpeg","png","webp"], key="ai_front")
                                 if front_img:
                                     front_img.seek(0)
-                                    st.image(Image.open(front_img), use_container_width=True)
+                                    st.image(Image.open(io.BytesIO(front_img.read())), use_container_width=True)
                             with col_b:
                                 st.markdown("**גב (אופציונלי):**")
                                 back_img = st.file_uploader("", type=["jpg","jpeg","png","webp"], key="ai_back")
                                 if back_img:
                                     back_img.seek(0)
-                                    st.image(Image.open(back_img), use_container_width=True)
+                                    st.image(Image.open(io.BytesIO(back_img.read())), use_container_width=True)
 
                             if front_img:
                                 if st.button("✨ זהה מטבע", use_container_width=True):
                                     with st.spinner("🔍 מזהה..."):
-                                        front_img.seek(0)
-                                        if back_img:
-                                            back_img.seek(0)
-                                        result = identify_coin(front_img, back_img if back_img else None)
+                                        front_bytes = compress_image_bytes(front_img)
+                                        back_bytes = compress_image_bytes(back_img) if back_img else None
+                                        result = identify_coin(front_bytes, back_bytes)
                                         if result:
                                             st.session_state['ai_result'] = result
-                                            st.session_state['ai_front'] = front_img
-                                            st.session_state['ai_back'] = back_img
+                                            st.session_state['ai_front_bytes'] = front_bytes
+                                            st.session_state['ai_back_bytes'] = back_bytes
                                             st.success("✅ זוהה!")
 
                             if 'ai_result' in st.session_state:
@@ -340,11 +343,10 @@ with tab1:
                                 if qn:
                                     with st.spinner('מעלה...'):
                                         urls = []
-                                        for key in ['ai_front', 'ai_back']:
-                                            f = st.session_state.get(key)
-                                            if f:
-                                                f.seek(0)
-                                                url = upload_to_cloud(f)
+                                        for key in ['ai_front_bytes', 'ai_back_bytes']:
+                                            b = st.session_state.get(key)
+                                            if b:
+                                                url = upload_bytes_to_cloud(b)
                                                 if url:
                                                     urls.append(url)
                                         for f in (qf or []):
@@ -360,7 +362,7 @@ with tab1:
                                             "comments": ""
                                         }])
                                         if save_data(pd.concat([df, new_row], ignore_index=True)):
-                                            for key in ['ai_result','ai_front','ai_back']:
+                                            for key in ['ai_result','ai_front_bytes','ai_back_bytes']:
                                                 st.session_state.pop(key, None)
                                             st.rerun()
                                 else:
